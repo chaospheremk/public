@@ -1,0 +1,85 @@
+#=============================================================================================================================
+#
+# Script Name:     Detect_Local_Admin_Account.ps1
+# Description:     Detect if local admin account was created on device
+# Notes:           Remediate if account not found
+#
+#=============================================================================================================================
+
+# Define Variables
+$userName = "xyz_LAPS"
+
+try {
+
+    $localUsers = Get-LocalUser
+
+    if ($localUsers.Name -notcontains $userName){
+
+        # Exit 1 for Intune.
+        Write-Host "Local LAPS account does not exist"
+        exit 1
+    }
+    else {
+
+        # Exit 0 for Intune
+        Write-Host "Local LAPS account exists"
+        exit 0
+    }
+}
+catch {
+    
+    $errMsg = $_.Exception.Message
+    return $errMsg
+    exit 1
+}
+
+
+#=============================================================================================================================
+#
+# Script Name:     Remediate_Local_Admin_Account.ps1
+# Description:     This script creates the LAPS local admin account
+# Notes:           No variable substitution needed
+#
+#=============================================================================================================================
+
+$userName = "xyz_LAPS"
+
+try {
+
+    #Generate initial random password
+    #ASCII Character set for Password
+    $CharacterSet = @{
+        Lowercase   = (97..122) | Get-Random -Count 10 | % { [char]$_ }
+        Uppercase   = (65..90)  | Get-Random -Count 10 | % { [char]$_ }
+        Numeric     = (48..57)  | Get-Random -Count 10 | % { [char]$_ }
+        SpecialChar = (33..47) + (58..64) + (91..96) + (123..126) | Get-Random -Count 10 | % { [char]$_ }
+    }
+
+    #Frame Random Password from given character set
+    $StringSet = $CharacterSet.Uppercase + $CharacterSet.Lowercase + $CharacterSet.Numeric + $CharacterSet.SpecialChar
+
+    $password = -join (Get-Random -Count 14 -InputObject $StringSet) | ConvertTo-SecureString -AsPlainText -Force
+
+    # Create local user
+    New-LocalUser -Name $userName -Password $password -Description "Local LAPS account"
+
+    # Add user to Administrators group
+    Add-LocalGroupMember -Group "Administrators" -Member $userName
+
+    if (Get-LocalUser | Where-Object { $_.Name -eq $userName }) {
+
+        Write-Host "Local LAPS account created successfully"
+        exit 0
+    }
+    else {
+
+        Write-Host "Local LAPS account creation failed"
+        exit 1
+    }
+}
+catch {
+    
+    $errMsg = $_.Exception.Message
+    return $errMsg
+    exit 1
+}
