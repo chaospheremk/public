@@ -1,0 +1,86 @@
+Access Credential Manager As Trusted Caller
+(<![CDATA[]]>)
+
+Access From Network
+*S-1-5-32-544, *S-1-5-32-555
+
+Act As Part Of The Operating System
+(<![CDATA[]]>)
+
+Allow Local Log On
+*S-1-5-32-544, *S-1-5-32-545
+
+Backup Files And Directories
+*S-1-5-32-544
+
+Change System Time
+*S-1-5-19, *S-1-5-32-544
+
+Create Global Objects
+*S-1-5-32-544, *S-1-5-19, *S-1-5-20, S-1-5-6
+
+Create Page File
+*S-1-5-32-544
+
+Create Permanent Shared Objects
+(<![CDATA[]]>)
+
+Create Symbolic Links
+*S-1-5-32-544
+
+Create Token
+(<![CDATA[]]>)
+
+Debug Programs
+*S-1-5-32-544
+
+Deny Access From Network
+*S-1-5-32-546, *S-1-2-0
+
+Deny Local Log On
+*S-1-5-32-546
+
+Deny Remote Desktop Services Log On
+*S-1-5-32-546
+
+Enable Delegation
+(<![CDATA[]]>)
+
+Generate Security Audits
+*S-1-5-19, *S-1-5-20
+
+Impersonate Client
+*S-1-5-32-544, *S-1-5-19, *S-1-5-20, *S-1-5-6
+
+Increase Scheduling Priority
+*S-1-5-32-544, *S-1-5-90
+
+Load Unload Device Drivers
+*S-1-5-32-544
+
+Lock Memory
+(<![CDATA[]]>)
+
+Manage Auditing And Security Log
+*S-1-5-32-544
+
+Manage Volume
+*S-1-5-32-544
+
+Modify Firmware Environment
+*S-1-5-32-544
+
+Modify Object Label
+(<![CDATA[]]>)
+
+Profile Single Process
+*S-1-5-32-544
+
+Remote Shutdown
+*S-1-5-32-544
+
+Restore Files And Directories
+*S-1-5-32-544
+
+Take Ownership
+*S-1-5-32-544
