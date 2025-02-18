@@ -1,0 +1,24 @@
+# List of servers you want to query (you can modify this list as needed)
+$servers = @('Server1', 'Server2', 'Server3')
+
+foreach ($server in $servers) {
+    Write-Host "Checking $server ..." -ForegroundColor Cyan
+    Invoke-Command -ComputerName $server -ScriptBlock {
+        $tempFile = "$env:TEMP\secpol.cfg"
+
+        # Export the security policy settings to a temporary file
+        secedit /export /cfg $tempFile | Out-Null
+
+        # Read and filter the exported file for the Log on as a service right
+        $line = Get-Content $tempFile | Where-Object { $_ -match "SeServiceLogonRight" }
+
+        # Clean up the temporary file
+        Remove-Item $tempFile -ErrorAction SilentlyContinue
+
+        # Return the result with the server's name
+        [PSCustomObject]@{
+            ComputerName         = $env:COMPUTERNAME
+            ServiceLogonRights   = $line
+        }
+    }
+}
