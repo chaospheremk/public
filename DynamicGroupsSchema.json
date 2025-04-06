@@ -1,0 +1,51 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "Name": {
+                "type": "string"
+            },
+            "GroupObjectGUID": {
+                "type": "string",
+                "format": "uuid"
+            },
+            "Filter": {
+                "type": "string"
+            },
+            "LDAPFilter": {
+                "type": "string"
+            },
+            "SearchBase": {
+                "type": "string"
+            },
+            "ObjectType": {
+                "type": "string",
+                "enum": [
+                    "User",
+                    "Computer"
+                ]
+            }
+        },
+        "required": [
+            "Name",
+            "GroupObjectGUID",
+            "SearchBase",
+            "ObjectType"
+        ],
+        "anyOf": [
+            {
+                "required": [
+                    "Filter"
+                ]
+            },
+            {
+                "required": [
+                    "LDAPFilter"
+                ]
+            }
+        ],
+        "additionalProperties": false
+    }
+}
