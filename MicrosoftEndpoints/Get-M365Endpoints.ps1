@@ -352,22 +352,3 @@ function Get-TeamsEndpoints {
         return $tableList
     } # process
 }
-
-
-### ipv4 regex
-
-$ipv4Regex = '\b(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(?:\.|$)){4}\b'
-
-$ipv4Regex = '\b(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(?:\.|$)){4}\b'
-
-
-# ipv6 Regex
-$ip = 'fe80::20d:3aff:fe1d:49e'
-$ip = '192.168.1.1'
-
-
-$isValidIP = [System.Net.IPAddress]::TryParse($ip, [ref]$null)
-Write-Output $isValidIP # True
-
-
-
