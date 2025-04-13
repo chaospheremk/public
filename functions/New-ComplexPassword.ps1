@@ -30,7 +30,7 @@ function New-ComplexPassword {
     [CmdletBinding()]
     [OutputType([string])]
     param (
-        [ValidateScript({$_ -ge 8})]
+        [ValidateScript({ $_ -ge 8 })]
         [int]$Length = 16
     )
 
@@ -38,36 +38,34 @@ function New-ComplexPassword {
 
         # Define the character sets for password generation
         # Lowercase letters, uppercase letters, digits, and special characters
-        $characterSet = @{
+        $charSet = @{
 
-            LowerCase = [char[]](97..122)
-            UpperCase = [char[]](65..90)
             Digits    = [char[]](48..57)
-            Special   = [char[]]((33..47) + (58..64) + 91 + (93..95) + (123..126))
+            UpperCase = [char[]](65..90)
+            LowerCase = [char[]](97..122)
+            Special   = [char[]]( (33..47) + (58..64) + 91 + (93..95) + (123..126) )
+            All       = [char[]]( (33..90) + 91 + (93..95) + (97..126) )
         }
-
-        $characterSet.All = [char[]]($characterSet.LowerCase + $characterSet.UpperCase +
-                                     $characterSet.Digits + $characterSet.Special)
     } # begin
 
     process {
 
         # Generate a random password with at least one character from each set
         # This ensures that the password meets complexity requirements
-        $passwordList = [System.Collections.Generic.List[PSObject]]::new()
-        $passwordList.Add( ($characterSet.LowerCase | Get-SecureRandom) )
-        $passwordList.Add( ($characterSet.UpperCase | Get-SecureRandom) )
-        $passwordList.Add( ($characterSet.Digits | Get-SecureRandom) )
-        $passwordList.Add( ($characterSet.Special | Get-SecureRandom) )
+        $pwList = [System.Collections.Generic.List[psobject]]::new()
+        $pwList.Add( ($charSet.LowerCase | Get-SecureRandom) )
+        $pwList.Add( ($charSet.UpperCase | Get-SecureRandom) )
+        $pwList.Add( ($charSet.Digits | Get-SecureRandom) )
+        $pwList.Add( ($charSet.Special | Get-SecureRandom) )
 
         # Generate the remaining characters randomly
-        for ([int]$i = $passwordList.count; $i -lt $Length; $i++) { 
+        for ([int]$i = $pwList.count; $i -lt $Length; $i++) { 
             
-            $passwordList.Add( ($characterSet.All | Get-SecureRandom) )
-        } # for
+            $pwList.Add( ($charSet.All | Get-SecureRandom) )
+        }
 
         # Shuffle the password list to ensure randomness
         # Convert the list to a string and return it
-        [string]( ($passwordList | Get-SecureRandom -Shuffle) -join '' )
+        ($pwList | Get-SecureRandom -Shuffle) -join ''
     } # process
 }
