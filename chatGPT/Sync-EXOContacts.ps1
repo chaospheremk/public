@@ -13,7 +13,7 @@ param (
 
 
 
-function Log {
+function Write-Log {
     param([string]$Message)
     $timestamp = (Get-Date).ToString("s")
     $line = "[$timestamp] $Message"
@@ -74,11 +74,11 @@ function Send-LogNotification {
     }
 
     Send-MgUserMail -UserId $SenderUPN -Message $message -SaveToSentItems:$false
-    Log "Graph email sent to $ToAddress from $SenderUPN"
+    Write-Log "Graph email sent to $ToAddress from $SenderUPN"
 }
 
 function Sync-_PROJECT_Contacts {
-    Log "Getting AD users with msDS-cloudExtensionAttribute13 = _PROJECT_..."
+    Write-Log "Getting AD users with msDS-cloudExtensionAttribute13 = _PROJECT_..."
     $adUsers = Get-ADUser -Filter 'msDS-cloudExtensionAttribute13 -eq "_PROJECT_"' -Properties 'msDS-cloudExtensionAttribute9', sAMAccountName, GivenName, Surname
 
     $currentEmails = [System.Collections.Generic.List[string]]::new()
@@ -110,7 +110,7 @@ function Sync-_PROJECT_Contacts {
 
         $contactName = "_PROJECT__$($user.sAMAccountName)"
         if ($DryRun) {
-            Log "[DryRun] Would create contact: $contactName <$email>"
+            Write-Log "[DryRun] Would create contact: $contactName <$email>"
         }
         else {
             try {
@@ -121,42 +121,42 @@ function Sync-_PROJECT_Contacts {
                     -CustomAttribute1 "_PROJECT_" `
                     -OrganizationalUnit "Contacts"
                 $createdContacts.Add($email)
-                Log "Created contact: $contactName <$email>"
+                Write-Log "Created contact: $contactName <$email>"
             }
             catch {
-                Log "ERROR creating contact $contactName <$email>: $_"
+                Write-Log "ERROR creating contact $contactName <$email>: $_"
             }
         }
     }
 
-    Log "Total contacts created: $($createdContacts.Count)"
+    Write-Log "Total contacts created: $($createdContacts.Count)"
 
     $removedContacts = [System.Collections.Generic.List[string]]::new()
     foreach ($email in $existingContacts.Keys) {
         if (-not $currentEmails.Contains($email)) {
             $contact = $contactLookup[$email]
             if ($DryRun) {
-                Log "[DryRun] Would remove orphaned contact: $($contact.Name) <$email>"
+                Write-Log "[DryRun] Would remove orphaned contact: $($contact.Name) <$email>"
             }
             else {
                 try {
                     Remove-MailContact -Identity $contact.Identity -Confirm:$false
                     $removedContacts.Add($email)
-                    Log "Removed orphaned contact: $($contact.Name) <$email>"
+                    Write-Log "Removed orphaned contact: $($contact.Name) <$email>"
                 }
                 catch {
-                    Log "ERROR removing contact $($contact.Name) <$email>: $_"
+                    Write-Log "ERROR removing contact $($contact.Name) <$email>: $_"
                 }
             }
         }
     }
 
-    Log "Total orphaned contacts removed: $($removedContacts.Count)"
+    Write-Log "Total orphaned contacts removed: $($removedContacts.Count)"
 }
 
 # Main
 if (Test-Path $LogFile) { Remove-Item -Path $LogFile -Force }
-Log "===== _PROJECT_ Contact Sync Starting ====="
+Write-Log "===== _PROJECT_ Contact Sync Starting ====="
 
 Connect-ExchangeOnlineApp
 Sync-_PROJECT_Contacts
@@ -166,4 +166,4 @@ if ($NotifyEmail -and $SenderUPN) {
     Send-LogNotification -SenderUPN $SenderUPN -ToAddress $NotifyEmail -Subject "_PROJECT_ Contact Sync Log" -LogFile $LogFile
 }
 
-Log "===== _PROJECT_ Contact Sync Completed ====="
+Write-Log "===== _PROJECT_ Contact Sync Completed ====="
