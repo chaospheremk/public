@@ -79,11 +79,11 @@ function Send-LogNotification {
 
 function Sync-_PROJECT_Contacts {
     Log "Getting AD users with msDS-cloudExtensionAttribute13 = _PROJECT_..."
-    $adUsers = Get-ADUser -Filter 'msDS-cloudExtensionAttribute13 -eq "_PROJECT_"' -Properties msDS-cloudExtensionAttribute9, sAMAccountName, GivenName, Surname
+    $adUsers = Get-ADUser -Filter 'msDS-cloudExtensionAttribute13 -eq "_PROJECT_"' -Properties 'msDS-cloudExtensionAttribute9', sAMAccountName, GivenName, Surname
 
     $currentEmails = [System.Collections.Generic.List[string]]::new()
     foreach ($user in $adUsers) {
-        $email = $user.msDS-cloudExtensionAttribute9.Trim().ToLower()
+        $email = $user.'msDS-cloudExtensionAttribute9'.Trim().ToLower()
         if (-not [string]::IsNullOrWhiteSpace($email)) {
             $currentEmails.Add($email)
         }
@@ -103,7 +103,7 @@ function Sync-_PROJECT_Contacts {
     $createdContacts = [System.Collections.Generic.List[string]]::new()
 
     foreach ($user in $adUsers) {
-        $email = $user.msDS-cloudExtensionAttribute9.Trim().ToLower()
+        $email = $user.'msDS-cloudExtensionAttribute9'.Trim().ToLower()
         if ([string]::IsNullOrWhiteSpace($email) -or $existingContacts.ContainsKey($email)) {
             continue
         }
