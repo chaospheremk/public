@@ -1,0 +1,25 @@
+function Select-ProjectedObjectList {
+
+    [CmdletBinding()]
+    [OutputType([System.Collections.Generic.List[PSObject]])]
+    param (
+
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [System.Collections.Generic.List[PSObject]]
+        $ObjectList,
+
+        [ScriptBlock]
+        $FilterBlock = { $_ },
+
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [ScriptBlock]
+        $ForEachBlock
+    )
+
+    process {
+
+        return ,[System.Collections.Generic.List[PSObject]]$ObjectList.Where($FilterBlock).ForEach($ForEachBlock)
+    }
+}
