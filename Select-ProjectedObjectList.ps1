@@ -35,9 +35,6 @@ function Select-ProjectedObjectList {
     begin {
 
         $list = [System.Collections.Generic.List[PSObject]]$ObjectList.Where($FilterBlock).ForEach($ForEachBlock)
-    } # begin
-
-    process {
 
         if ($AsDictionary) {
 
@@ -46,11 +43,15 @@ function Select-ProjectedObjectList {
                 ObjectList = [System.Collections.Generic.List[PSObject]]$list
                 KeyProperty = $KeyProperty
             }
-        
-            ConvertTo-Dictionary @paramsConvertToDictionary
         }
-        else { ,[System.Collections.Generic.List[PSObject]]$list }
-    } # process
+    } # begin
+
+    end {
+
+        if ($AsDictionary) { ConvertTo-Dictionary @paramsConvertToDictionary }
+        #else { ,[System.Collections.Generic.List[PSObject]]$list }
+        else { ,$list }
+    }
 }
 
 function ConvertTo-Dictionary {
@@ -79,7 +80,46 @@ function ConvertTo-Dictionary {
             try { $dictionary.Add($key, $object) }
             catch { Write-Error -Message $_ }
         }
-
-        $dictionary
     } # process
+
+    end { $dictionary }
+}
+
+function Get-DictionaryDelta {
+
+    [CmdletBinding()]
+    [OutputType([PSCustomObject])]
+    param (
+
+        [Parameter(Mandatory)]
+        [System.Collections.Generic.Dictionary[string, PSObject]]
+        $Source,
+
+        [Parameter(Mandatory)]
+        [System.Collections.Generic.Dictionary[string, PSObject]]
+        $Target
+    )
+
+    begin {
+
+        $adds    = [System.Collections.Generic.List[PSObject]]::new()
+        $removes = [System.Collections.Generic.List[PSObject]]::new()
+    }
+
+    process {
+
+        # Keys to Add (in Source but not in Target)
+        foreach ($key in $Source.Keys) { if (-not $Target.ContainsKey($key)) { $adds.Add($Source[$key]) } }
+
+        # Keys to Remove (in Target but not in Source)
+        foreach ($key in $Target.Keys) { if (-not $Source.ContainsKey($key)) { $removes.Add($Target[$key]) } }
+    }
+
+    end {
+        
+        [PSCustomObject]@{
+            Adds    = $adds
+            Removes = $removes
+        }
+    }
 }
