@@ -32,26 +32,25 @@ function Select-ProjectedObjectList {
         $KeyProperty
     )
 
+    begin {
+
+        $list = [System.Collections.Generic.List[PSObject]]$ObjectList.Where($FilterBlock).ForEach($ForEachBlock)
+    } # begin
+
     process {
 
         if ($AsDictionary) {
 
             $paramsConvertToDictionary = @{
 
-                ObjectList = [System.Collections.Generic.List[PSObject]]$ObjectList.Where($FilterBlock).ForEach($ForEachBlock)
+                ObjectList = [System.Collections.Generic.List[PSObject]]$list
                 KeyProperty = $KeyProperty
             }
         
-            $dictionary = ConvertTo-Dictionary @paramsConvertToDictionary
-
-            return $dictionary
+            ConvertTo-Dictionary @paramsConvertToDictionary
         }
-        else {
-            
-            $result = $ObjectList.Where($FilterBlock).ForEach($ForEachBlock)
-            return (,$result)
-        }
-    }
+        else { ,[System.Collections.Generic.List[PSObject]]$list }
+    } # process
 }
 
 function ConvertTo-Dictionary {
@@ -60,20 +59,26 @@ function ConvertTo-Dictionary {
     [OutputType([System.Collections.Generic.Dictionary[string, PSObject]])]
     param (
 
-        [Parameter(Mandatory = $true)]
+        [Parameter(Mandatory)]
         [System.Collections.Generic.List[PSObject]]
         $ObjectList,
 
-        [Parameter(Mandatory = $true)]
+        [Parameter(Mandatory)]
         [string]
         $KeyProperty
     )
 
-    begin { $dictionary = [System.Collections.Generic.Dictionary[string, PSObject]]::new() } # begin
+    begin { $dictionary = [System.Collections.Generic.Dictionary[string, PSObject]]::new() }
 
     process {
 
-        foreach ($object in $ObjectList) { $dictionary.Add($object.$KeyProperty, $object) }
+        foreach ($object in $ObjectList) {
+
+            $key = $object.$KeyProperty.ToString().Trim().ToLower()
+
+            try { $dictionary.Add($key, $object) }
+            catch { Write-Error -Message $_ }
+        }
 
         $dictionary
     } # process
