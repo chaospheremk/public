@@ -8,7 +8,6 @@ function Select-ProjectedObjectList {
 
         [Parameter(Mandatory, ParameterSetName = 'Default')]
         [Parameter(Mandatory, ParameterSetName = 'AsDictionary')]
-        [ValidateNotNullOrEmpty()]
         [System.Collections.Generic.List[PSObject]]
         $ObjectList,
 
@@ -40,7 +39,7 @@ function Select-ProjectedObjectList {
 
             $paramsConvertToDictionary = @{
 
-                ObjectList = [System.Collections.Generic.List[PSObject]]$list
+                ObjectList = $list
                 KeyProperty = $KeyProperty
             }
         }
@@ -49,7 +48,6 @@ function Select-ProjectedObjectList {
     end {
 
         if ($AsDictionary) { ConvertTo-Dictionary @paramsConvertToDictionary }
-        #else { ,[System.Collections.Generic.List[PSObject]]$list }
         else { ,$list }
     }
 }
@@ -61,6 +59,7 @@ function ConvertTo-Dictionary {
     param (
 
         [Parameter(Mandatory)]
+        [AllowEmptyCollection()]
         [System.Collections.Generic.List[PSObject]]
         $ObjectList,
 
@@ -80,6 +79,7 @@ function ConvertTo-Dictionary {
             try { $dictionary.Add($key, $object) }
             catch { Write-Error -Message $_ }
         }
+
     } # process
 
     end { $dictionary }
