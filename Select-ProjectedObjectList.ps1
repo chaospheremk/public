@@ -8,6 +8,7 @@ function Select-ProjectedObjectList {
 
         [Parameter(Mandatory, ParameterSetName = 'Default')]
         [Parameter(Mandatory, ParameterSetName = 'AsDictionary')]
+        [AllowNull()]
         [System.Collections.Generic.List[PSObject]]
         $ObjectList,
 
