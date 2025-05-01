@@ -167,36 +167,40 @@ function Invoke-DeclarativeReconciliation {
         $RemoveBlock
     )
 
+    begin {
+
+        $paramsSourceProjectedObjectList = @{
+
+            ObjectList = $SourceObjectList
+            FilterBlock = $SourceFilterBlock
+            ForEachBlock = $SourceForEachBlock
+            AsDictionary = $true
+            KeyProperty = $KeyProperty
+        }
+
+        $paramsTargetProjectedObjectList = @{
+
+            ObjectList = $TargetObjectList
+            FilterBlock = $TargetFilterBlock
+            ForEachBlock = $TargetForEachBlock
+            AsDictionary = $true
+            KeyProperty = $KeyProperty
+        }
+    }
     # get the source and target dictionaries
-    $paramsSourceProjectedObjectList = @{
 
-        ObjectList = $SourceObjectList
-        FilterBlock = $SourceFilterBlock
-        ForEachBlock = $SourceForEachBlock
-        AsDictionary = $true
-        KeyProperty = $KeyProperty
+    process {
+
+        $sourceDict = Select-ProjectedObjectList @paramsSourceProjectedObjectList
+
+        $targetDict = Select-ProjectedObjectList @paramsTargetProjectedObjectList
+
+        # get the delta between the source and target dictionaries
+        $delta = Get-DictionaryDelta -Source $sourceDict -Target $targetDict
+
+        # if the delta is empty, return
+        if ($delta.Adds) { & $AddBlock -Objects $delta.Adds }
+
+        if ($delta.Removes) { & $RemoveBlock -Objects $delta.Removes }
     }
-
-    $sourceDict = Select-ProjectedObjectList @paramsSourceProjectedObjectList
-
-    $paramsTargetProjectedObjectList = @{
-
-        ObjectList = $TargetObjectList
-        FilterBlock = $TargetFilterBlock
-        ForEachBlock = $TargetForEachBlock
-        AsDictionary = $true
-        KeyProperty = $KeyProperty
-    }
-
-    $targetDict = Select-ProjectedObjectList @paramsTargetProjectedObjectList
-
-    # get the delta between the source and target dictionaries
-    $delta = Get-DictionaryDelta -Source $sourceDict -Target $targetDict
-
-    # if the delta is empty, return
-    if (-not $delta.Adds -and -not $delta.Removes) { return }
-
-    if ($delta.Adds) { & $AddBlock -Objects $delta.Adds }
-
-    if ($delta.Removes) { & $RemoveBlock -Objects $delta.Removes }
 }
