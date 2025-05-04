@@ -71,7 +71,7 @@ function Write-Log {
             }
         }
 
-        if($Level -eq 'ERROR') {
+        if ($Level -eq 'ERROR') {
 
             $errorDict = [System.Collections.Generic.Dictionary[string, PSObject]]::new()
             $invocationInfo = $ErrorObject.InvocationInfo
@@ -81,25 +81,25 @@ function Write-Log {
                 $scriptLineNumber = $invocationInfo.ScriptLineNumber
 
                 $errorScriptName = if ([string]::IsNullOrEmpty($invocationInfo.ScriptName)) { $null }
-                                   else { $invocationInfo.ScriptName }
+                else { $invocationInfo.ScriptName }
 
                 $errorLineNumber = if ($scriptLineNumber -gt 0) { $scriptLineNumber }
-                                   else { $null }
+                else { $null }
 
                 $errorCommandName = if ($invocationInfo.MyCommand) { $invocationInfo.MyCommand.Name }
-                                    else { $null }
+                else { $null }
 
                 $errorCommand = if ([string]::IsNullOrEmpty($errorCommandName)) { $null }
-                                else { $errorCommandName }
+                else { $errorCommandName }
                 
                 $errorPosition = if ([string]::IsNullOrEmpty($invocationInfo.PositionMessage)) { $null }
-                                 else { ($invocationInfo.PositionMessage -split "\n")[0] }
+                else { ($invocationInfo.PositionMessage -split "\n")[0] }
             }
 
             if ($ErrorObject.Exception) {
 
                 $errorMessage = if ([string]::IsNullOrEmpty($ErrorObject.Exception.Message)) { $null }
-                                else { $ErrorObject.Exception.Message }
+                else { $ErrorObject.Exception.Message }
 
                 $errorType = $ErrorObject.Exception.GetType().FullName
             }
@@ -128,21 +128,29 @@ function Write-Log {
 function Read-Log {
     [CmdletBinding()]
     param (
+        [Parameter(ParameterSetName = 'Default')]
         [string]$LogPath = "$(Get-Location)\log.jsonl",
 
+        [Parameter(ParameterSetName = 'Default')]
         [ValidateSet('INFO', 'WARN', 'ERROR', 'DEBUG', IgnoreCase = $true)]
         [string[]]$Level,
 
+        [Parameter(ParameterSetName = 'Default')]
         [string]$MessageContains,
 
+        [Parameter(ParameterSetName = 'Default')]
         [datetime]$Since,
 
+        [Parameter(ParameterSetName = 'Default')]
         [datetime]$Until,
 
+        [Parameter(ParameterSetName = 'Default')]
         [switch]$Colorize,
 
+        [Parameter(ParameterSetName = 'Default')]
         [switch]$ExportCsv,
         
+        [Parameter(ParameterSetName = 'Default')]
         [string]$CsvPath = "$(Get-Location)\log.csv"
     )
 
@@ -155,6 +163,8 @@ function Read-Log {
         }
 
         $resultsList = [System.Collections.Generic.List[PSObject]]::new()
+        $dictList = [System.Collections.Generic.List[System.Collections.Generic.Dictionary[string, PSObject]]]::new()
+        $allKeys = [System.Collections.Generic.HashSet[string]]::new()
 
         $lines = Get-Content -Path $LogPath
     } # begin
@@ -163,53 +173,102 @@ function Read-Log {
 
         foreach ($line in $lines) {
 
-            try { $entry = $line | ConvertFrom-Json }
+            # skip line if it is not a valid JSON object, warn
+            try {
+
+                $entry = $line | ConvertFrom-Json -Depth 5
+                $entryLevel = $entry.Level.ToUpperInvariant()
+                $entryMessage = $entry.Message
+            }
             catch {
 
                 Write-Warning "Skipping invalid JSON line: $line"
                 continue
             }
 
-            $timestampUtc   = [datetime]$entry.UtcTimestamp
+            # skip line if timestamp is not valid, warn
+            try { $timestampUtc = [datetime]$entry.UtcTimestamp }
+            catch {
+
+                Write-Warning "Skipping log line with invalid timestamp: $($entry.UtcTimestamp)"
+                continue
+            }
+
+            # skip line if Level or Message is not valid, warn
+            if (-not $entryLevel -or -not $entryMessage) {
+                Write-Warning "Skipping log line due to missing Level or Message field."
+                continue
+            }
+
             $timestampLocal = $timestampUtc.ToLocalTime()
 
             if (
-                ($Level -and ($entry.Level -notin $Level)) -or
-                (-not [string]::IsNullOrWhiteSpace($MessageContains) -and
-                    ($entry.Message -notlike "*$MessageContains*")) -or
+                ($Level -and ($entryLevel -notin $Level)) -or
+                ($MessageContains -and ($entryMessage -notlike "*$MessageContains*")) -or
                 ($Since -and $timestampUtc -lt $Since.ToUniversalTime()) -or
                 ($Until -and $timestampUtc -gt $Until.ToUniversalTime())
             ) { continue }
 
-            $logObject = [PSCustomObject]@{
-                LocalTime = $timestampLocal
-                UtcTime   = $timestampUtc
-                Level     = $entry.Level
-                Message   = $entry.Message
+            # Use dictionary for efficient property assignment and access
+            $logDict = [System.Collections.Generic.Dictionary[string, PSObject]]::new()
+            $logDict["LocalTime"] = $timestampLocal
+            $logDict["UtcTime"] = $timestampUtc
+            $logDict["Level"] = $entryLevel
+            $logDict["Message"] = $entryMessage
+
+            # Flatten metadata if it exists
+            if ($entry.Metadata) {
+
+                foreach ($metaKey in $entry.Metadata.PSObject.Properties.Name) {
+
+                    $metaValue = $entry.Metadata.$metaKey
+
+                    if (($metaValue -is [PSObject]) -and ($metaValue.PSObject.Properties.Count -gt 0)) {
+
+                        foreach ($subKey in $metaValue.PSObject.Properties.Name) {
+                            
+                            $logDict["$metaKey`_$subKey"] = $metaValue.$subKey
+                        }
+                    }
+                    else { $logDict[$metaKey] = $metaValue }
+                }
             }
 
-            $resultsList.Add($logObject)
+            $null = $allKeys.UnionWith($logDict.Keys)
+            $dictList.Add($logDict)
 
             if ($Colorize) {
 
-                $levelAbbr = switch ($entry.Level.ToUpperInvariant()) {
+                $levelAbbr = switch ($entryLevel) {
                     'ERROR' { 'ERR' }
-                    'WARN'  { 'WRN' }
-                    'INFO'  { 'INF' }
+                    'WARN' { 'WRN' }
+                    'INFO' { 'INF' }
                     'DEBUG' { 'DBG' }
-                    default { $entry.Level.Substring(0, [Math]::Min(3, $entry.Level.Length)).ToUpperInvariant() }
+                    default { $entryLevel.Substring(0, [Math]::Min(3, $entryLevel.Length)).ToUpperInvariant() }
                 }
 
-                $color = switch ($entry.Level.ToUpperInvariant()) {
+                $color = switch ($entryLevel) {
                     'ERROR' { 'Red' }
-                    'WARN'  { 'Yellow' }
+                    'WARN' { 'Yellow' }
                     'DEBUG' { 'DarkGray' }
                     default { 'Gray' }
                 }
 
-                $formatted = "{0} [{1}] {2}" -f $logObject.LocalTime.ToString("yyyy-MM-dd HH:mm:ss"), $levelAbbr, $logObject.Message
+                $formatted = "{0} [{1}] {2}" -f $logDict["LocalTime"].ToString("yyyy-MM-dd HH:mm:ss"), $levelAbbr, $logDict["Message"]
                 Write-Host $formatted -ForegroundColor $color
             }
+        }
+
+        # Normalize and convert to PSObjects
+        foreach ($dict in $dictList) {
+
+            foreach ($key in $allKeys) { if (-not $dict.ContainsKey($key)) { $dict[$key] = $null } }
+
+            # Convert to ordered hashtable to preserve column order
+            $orderedHashtable = [ordered]@{}
+            foreach ($key in $allKeys) { $orderedHashtable[$key] = $dict[$key] }
+
+            $resultsList.Add([PSCustomObject]$orderedHashtable)
         }
 
         if ($ExportCsv -and ($resultsList.Count -gt 0)) {
@@ -223,5 +282,5 @@ function Read-Log {
         }
 
         if ((-not $Colorize) -and (-not $ExportCsv)) { $resultsList }
-    }
+    } # process
 }

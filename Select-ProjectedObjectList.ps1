@@ -219,3 +219,19 @@ function Invoke-DeclarativeReconciliation {
         if ($delta.Removes) { & $RemoveBlock -Objects $delta.Removes }
     }
 }
+
+function ConvertTo-OrderedPSObject {
+    [CmdletBinding()]
+    [OutputType([PSCustomObject])]
+    param (
+        [Parameter(Mandatory)]
+        [System.Collections.IDictionary]
+        $Dictionary
+    )
+
+    begin { $orderedHashtable = [ordered]@{} }
+    
+    process { foreach ($key in $Dictionary.Keys) { $orderedHashtable[$key] = $Dictionary[$key]} }
+    
+    end { [PSCustomObject]$orderedHashtable }
+}
