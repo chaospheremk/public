@@ -1,16 +1,31 @@
 function Write-Log {
+
     [CmdletBinding()]
     param (
-        [Parameter(Mandatory)]
+        [Parameter(Mandatory, ParameterSetName = 'Default')]
+        [Parameter(ParameterSetName = 'Error')]
         [string]$Message,
 
+        [Parameter(ParameterSetName = 'Default')]
+        [Parameter(ParameterSetName = 'Error')]
         [ValidateSet("INFO", "WARN", "ERROR", "DEBUG", IgnoreCase = $true)]
         [string]$Level = "INFO",
 
-        [string]$LogPath = "$(Get-Location)\log.jsonl"
+        [Parameter(ParameterSetName = 'Default')]
+        [Parameter(ParameterSetName = 'Error')]
+        [string]$LogPath = "$(Get-Location)\log.jsonl",
+
+        [Parameter(ParameterSetName = 'Default')]
+        [Parameter(ParameterSetName = 'Error')]
+        [PSObject]$Metadata,
+
+        [Parameter(Mandatory, ParameterSetName = 'Error')]
+        [System.Management.Automation.ErrorRecord]$ErrorObject
     )
 
     begin {
+
+        $utcNow = (Get-Date).ToUniversalTime().ToString('o')
 
         $logDirectory = Split-Path -Parent $LogPath
 
@@ -22,15 +37,90 @@ function Write-Log {
 
     process {
 
-        $logEntry = @{
-            UtcTimestamp = (Get-Date).ToUniversalTime().ToString("o")
-            Level        = $Level.ToUpperInvariant()
-            Message      = $Message
+        # Create the main log entry using a generic dictionary
+        $logEntry = [System.Collections.Generic.Dictionary[string, PSObject]]::new()
+        $logEntry['UtcTimestamp'] = $utcNow
+        $logEntry['Level'] = $Level.ToUpperInvariant()
+        $logEntry['Message'] = $Message
+
+        if ($Metadata -or ($Level -eq 'ERROR')) {
+            
+            $metadataDict = [System.Collections.Generic.Dictionary[string, PSObject]]::new()
         }
 
-        $logEntryJson = $logEntry | ConvertTo-Json -Compress
+        # Initialize internal metadata
+        if ($Metadata) {
 
-        try { Add-Content -Path $LogPath -Value $logEntryJson }
+            if ($Metadata -is [hashtable]) {
+
+                # Convert hashtable to a dictionary
+                $genDict = ConvertTo-Dictionary -Hashtable $Metadata
+
+                foreach ($key in $genDict.Keys) { $metadataDict[$key] = $genDict[$key] }
+            }
+            elseif ($Metadata -is [PSCustomObject] -or $Metadata.PSObject.Members.Count -gt 0) {
+
+                # Convert PSObject to a dictionary
+                foreach ($prop in $Metadata.PSObject.Properties) { $metadataDict[$prop.Name] = $prop.Value }
+            }
+            else {
+
+                # If Metadata is not a hashtable or PSObject, treat it as a raw value
+                # and store it under a special key
+                $metadataDict['RawValue'] = $Metadata
+            }
+        }
+
+        if($Level -eq 'ERROR') {
+
+            $errorDict = [System.Collections.Generic.Dictionary[string, PSObject]]::new()
+            $invocationInfo = $ErrorObject.InvocationInfo
+
+            if ($invocationInfo) {
+
+                $scriptLineNumber = $invocationInfo.ScriptLineNumber
+
+                $errorScriptName = if ([string]::IsNullOrEmpty($invocationInfo.ScriptName)) { $null }
+                                   else { $invocationInfo.ScriptName }
+
+                $errorLineNumber = if ($scriptLineNumber -gt 0) { $scriptLineNumber }
+                                   else { $null }
+
+                $errorCommandName = if ($invocationInfo.MyCommand) { $invocationInfo.MyCommand.Name }
+                                    else { $null }
+
+                $errorCommand = if ([string]::IsNullOrEmpty($errorCommandName)) { $null }
+                                else { $errorCommandName }
+                
+                $errorPosition = if ([string]::IsNullOrEmpty($invocationInfo.PositionMessage)) { $null }
+                                 else { ($invocationInfo.PositionMessage -split "\n")[0] }
+            }
+
+            if ($ErrorObject.Exception) {
+
+                $errorMessage = if ([string]::IsNullOrEmpty($ErrorObject.Exception.Message)) { $null }
+                                else { $ErrorObject.Exception.Message }
+
+                $errorType = $ErrorObject.Exception.GetType().FullName
+            }
+
+            $errorDict['ScriptName'] = $errorScriptName
+            $errorDict['LineNumber'] = $errorLineNumber
+            $errorDict["Command"] = $errorCommand
+            $errorDict["PositionMessage"] = $errorPosition
+            $errorDict['Type'] = $errorType
+            $errorDict['Message'] = $errorMessage
+            
+            $metadataDict['Error'] = $errorDict
+        }
+
+        if ($metadataDict.Count -gt 0) { $logEntry['Metadata'] = $metadataDict }
+
+        try {
+
+            $logEntryJson = $logEntry | ConvertTo-Json -Compress -Depth 5
+            Add-Content -Path $LogPath -Value $logEntryJson -Encoding UTF8
+        }
         catch { Write-Warning "Failed to write log entry to '$LogPath': $_" }
     }
 }

@@ -59,26 +59,41 @@ function ConvertTo-Dictionary {
     [OutputType([System.Collections.Generic.Dictionary[string, PSObject]])]
     param (
 
-        [Parameter(Mandatory)]
+        [Parameter(Mandatory, ParameterSetName = 'FromObjectList')]
         [AllowEmptyCollection()]
         [System.Collections.Generic.List[PSObject]]
         $ObjectList,
 
-        [Parameter(Mandatory)]
+        [Parameter(Mandatory, ParameterSetName = 'FromObjectList')]
         [string]
-        $KeyProperty
+        $KeyProperty,
+
+        [Parameter(Mandatory, ParameterSetName = 'FromHashtable')]
+        [hashtable]
+        $Hashtable
     )
 
     begin { $dictionary = [System.Collections.Generic.Dictionary[string, PSObject]]::new() }
 
     process {
 
-        foreach ($object in $ObjectList) {
+        switch ($PSCmdlet.ParameterSetName) {
 
-            $key = $object.$KeyProperty.ToString().Trim().ToLower()
+            'FromObjectList' {
 
-            try { $dictionary.Add($key, $object) }
-            catch { Write-Error -Message $_.Exception.Message }
+                foreach ($object in $ObjectList) {
+
+                    $key = $object.$KeyProperty.ToString().Trim().ToLower()
+
+                    try { $dictionary.Add($key, $object) }
+                    catch { Write-Error -Message $_.Exception.Message }
+                }
+            }
+
+            'FromHashtable' {
+
+                foreach ($key in $Hashtable.Keys) { $dictionary[$key] = $Hashtable[$key] }
+            }
         }
 
     } # process
