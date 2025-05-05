@@ -11,26 +11,76 @@ $paramsWriteLog = @{
 
 Write-Log @paramsWriteLog -Message 'Started DynamicADGroupSync'
 
-# initialize the params for the Add and Remove blocks
-
-Write-Log @paramsWriteLog -Message 'Initializing Invoke-DeclarativeReconciliation parameters...'
-
-$targetGroupName = 'TestGroup'
-$keyProperty = 'ObjectGuid'
-
+### declare source object list blocks, filter blocks, and foreach blocks. Create parameter hashtables if required.
+# source object list block. Create parameter hashtable if required.
 $paramsAd = @{
     Server = 'dougjohnson.me'
     Credential = Get-Credential -Message 'Enter AD credentials'
 }
 
+$paramsGetSourceObjectList = @{
+
+    Filter = "msDS-cloudExtensionAttribute1 -like '*'" 
+    Properties = 'msDS-cloudExtensionAttribute1'
+} + $paramsAd
+
+$sourceObjectListBlock = { Get-ADUser @paramsGetSourceObjectList }
+
+# no source filter block required
+
+# source foreach block
+$sourceForEachBlock = {
+
+    [PSCustomObject]@{
+        Name = $_.Name
+        SamAccountName = $_.SamAccountName
+        UserPrincipalName = $_.UserPrincipalName
+        GivenName = $_.GivenName
+        Surname = $_.Surname
+        ObjectGuid = $_.ObjectGUID
+    }
+}
+
+### declare target object list blocks, filter blocks, and foreach blocks. Create parameter hashtables if required.
+# target object list block.
+$targetGroupName = 'TestGroup'
+
+$paramsGetTargetObjectList = @{
+
+    Identity = $targetGroupName
+} + $paramsAd
+
+$targetObjectListBlock = { Get-ADGroupMember @paramsGetTargetObjectList }
+
+# no target filter block required
+
+# target foreach block
+$targetForEachBlock = {
+
+    [PSCustomObject]@{
+        Name = $_.name
+        SamAccountName = $_.SamAccountName
+        ObjectGuid = $_.ObjectGUID
+    }
+}
+
+##### KEY PROPERTY
+# specify the property that will be used to compare source and target objects. It must be unique to each object.
+$keyProperty = 'ObjectGuid'
+
+##### ADD AND REMOVE BLOCKS
+# add block
+Write-Log @paramsWriteLog -Message 'Initializing Invoke-DeclarativeReconciliation parameters...'
+
 $paramsAddBlock = @{ Identity = $targetGroupName } + $paramsAd
 
+$addBlock = { param ($Objects) Add-ADGroupMember -Members $Objects.$keyProperty @paramsAddBlock }
+
+# remove block
 $paramsRemoveBlock = @{
     Identity = $targetGroupName
     Confirm = $false
 } + $paramsAd
-
-$addBlock = { param ($Objects) Add-ADGroupMember -Members $Objects.$keyProperty @paramsAddBlock }
 
 $removeBlock = { param ($Objects) Remove-ADGroupMember -Members $Objects.$keyProperty @paramsRemoveBlock }
 
@@ -38,25 +88,10 @@ $removeBlock = { param ($Objects) Remove-ADGroupMember -Members $Objects.$keyPro
 
 $paramsInvokeDeclarativeReconciliation = @{
 
-    SourceObjectList = Get-ADUser -Filter "Office -eq 'HomeTest'" @paramsAd
-    SourceForEachBlock = {
-        [PSCustomObject]@{
-            Name = $_.Name
-            SamAccountName = $_.SamAccountName
-            UserPrincipalName = $_.UserPrincipalName
-            GivenName = $_.GivenName
-            Surname = $_.Surname
-            ObjectGuid = $_.ObjectGUID
-        }
-    }
-    TargetObjectList = Get-ADGroupMember -Identity 'TestGroup' @paramsAd
-    TargetForEachBlock = {
-        [PSCustomObject]@{
-            Name = $_.name
-            SamAccountName = $_.SamAccountName
-            ObjectGuid = $_.ObjectGUID
-        }
-    }
+    SourceObjectList = . $sourceObjectListBlock
+    SourceForEachBlock = $sourceForEachBlock
+    TargetObjectList = . $targetObjectListBlock
+    TargetForEachBlock = $targetForEachBlock
     KeyProperty = $keyProperty
     AddBlock = $addBlock
     RemoveBlock = $removeBlock

@@ -29,7 +29,7 @@ $sourceForEachBlock = {
     }
 }
 
-### declare source object list blocks, filter blocks, and foreach blocks. Create parameter hashtables if required.
+### declare target object list blocks, filter blocks, and foreach blocks. Create parameter hashtables if required.
 # target object list block.
 $targetObjectListBlock = { Get-MailContact -ResultSize 'Unlimited' }
 
