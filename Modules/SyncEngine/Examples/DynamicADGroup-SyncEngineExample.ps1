@@ -2,7 +2,18 @@
 # the Office attribute to filter users. The script will add users to the group if they are not already members and
 # remove them if they no longer meet the criteria.
 
+# Log variables
+$logPath = 'C:\temp\aaaDynamicADGroupSync\logs\log.jsonl'
+
+$paramsWriteLog = @{
+    LogPath = $logPath
+}
+
+Write-Log @paramsWriteLog -Message 'Started DynamicADGroupSync'
+
 # initialize the params for the Add and Remove blocks
+
+Write-Log @paramsWriteLog -Message 'Initializing Invoke-DeclarativeReconciliation parameters...'
 
 $targetGroupName = 'TestGroup'
 $keyProperty = 'ObjectGuid'
@@ -51,4 +62,19 @@ $paramsInvokeDeclarativeReconciliation = @{
     RemoveBlock = $removeBlock
 }
 
-Invoke-DeclarativeReconciliation @paramsInvokeDeclarativeReconciliation
+Write-Log @paramsWriteLog -Message 'Initialized Invoke-DeclarativeReconciliation parameters successfully.'
+
+Write-Log @paramsWriteLog -Message 'Running Invoke-DeclarativeReconciliation...'
+
+try {
+    
+    Invoke-DeclarativeReconciliation @paramsInvokeDeclarativeReconciliation
+
+    Write-Log @paramsWriteLog -Message 'Ran Invoke-DeclarativeReconciliation successfully.'
+}
+catch {
+
+    Write-Log @paramsWriteLog -Message $_.Exception.Message -Level Error -ErrorRecord $_
+}
+
+Write-Log @paramsWriteLog -Message 'Ended DynamicADGroupSync'
