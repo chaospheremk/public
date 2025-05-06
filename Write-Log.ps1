@@ -13,6 +13,10 @@ function Write-Log {
 
         [Parameter(ParameterSetName = 'Default')]
         [Parameter(ParameterSetName = 'Error')]
+        [string]$CorrelationId = (New-Guid).Guid,
+
+        [Parameter(ParameterSetName = 'Default')]
+        [Parameter(ParameterSetName = 'Error')]
         [string]$LogPath = "$(Get-Location)\log.jsonl",
 
         [Parameter(ParameterSetName = 'Default')]
@@ -42,6 +46,7 @@ function Write-Log {
         $logEntry['UtcTimestamp'] = $utcNow
         $logEntry['Level'] = $Level.ToUpperInvariant()
         $logEntry['Message'] = $Message
+        $logEntry['CorrelationId'] = $CorrelationId
 
         if ($Metadata -or ($Level -eq 'ERROR')) {
             
@@ -99,7 +104,7 @@ function Write-Log {
             if ($ErrorObject.Exception) {
 
                 $errorMessage = if ([string]::IsNullOrEmpty($ErrorObject.Exception.Message)) { $null }
-                else { $ErrorObject.Exception.Message }
+                                else { $ErrorObject.Exception.Message }
 
                 $errorType = $ErrorObject.Exception.GetType().FullName
             }
@@ -177,8 +182,10 @@ function Read-Log {
             try {
 
                 $entry = $line | ConvertFrom-Json -Depth 5
+
                 $entryLevel = $entry.Level.ToUpperInvariant()
                 $entryMessage = $entry.Message
+                $entryCorrelationId = $entry.CorrelationId
             }
             catch {
 
@@ -195,26 +202,29 @@ function Read-Log {
             }
 
             # skip line if Level or Message is not valid, warn
-            if (-not $entryLevel -or -not $entryMessage) {
+            if ((-not $entryLevel) -or (-not $entryMessage)) {
+
                 Write-Warning "Skipping log line due to missing Level or Message field."
                 continue
             }
 
             $timestampLocal = $timestampUtc.ToLocalTime()
 
+            # filtering block
             if (
                 ($Level -and ($entryLevel -notin $Level)) -or
                 ($MessageContains -and ($entryMessage -notlike "*$MessageContains*")) -or
-                ($Since -and $timestampUtc -lt $Since.ToUniversalTime()) -or
-                ($Until -and $timestampUtc -gt $Until.ToUniversalTime())
+                ($Since -and ($timestampUtc -lt $Since.ToUniversalTime())) -or
+                ($Until -and ($timestampUtc -gt $Until.ToUniversalTime()))
             ) { continue }
 
             # Use dictionary for efficient property assignment and access
             $logDict = [System.Collections.Generic.Dictionary[string, PSObject]]::new()
-            $logDict["LocalTime"] = $timestampLocal
-            $logDict["UtcTime"] = $timestampUtc
-            $logDict["Level"] = $entryLevel
-            $logDict["Message"] = $entryMessage
+            $logDict['LocalTime'] = $timestampLocal
+            $logDict['UtcTime'] = $timestampUtc
+            $logDict['Level'] = $entryLevel
+            $logDict['Message'] = $entryMessage
+            $logDict['CorrelationId'] = $entryCorrelationId
 
             # Flatten metadata if it exists
             if ($entry.Metadata) {
@@ -227,7 +237,7 @@ function Read-Log {
 
                         foreach ($subKey in $metaValue.PSObject.Properties.Name) {
                             
-                            $logDict["$metaKey`_$subKey"] = $metaValue.$subKey
+                            $logDict["$metaKey$subKey"] = $metaValue.$subKey
                         }
                     }
                     else { $logDict[$metaKey] = $metaValue }
@@ -240,6 +250,7 @@ function Read-Log {
             if ($Colorize) {
 
                 $levelAbbr = switch ($entryLevel) {
+
                     'ERROR' { 'ERR' }
                     'WARN' { 'WRN' }
                     'INFO' { 'INF' }
@@ -248,13 +259,14 @@ function Read-Log {
                 }
 
                 $color = switch ($entryLevel) {
+
                     'ERROR' { 'Red' }
                     'WARN' { 'Yellow' }
                     'DEBUG' { 'DarkGray' }
                     default { 'Gray' }
                 }
 
-                $formatted = "{0} [{1}] {2}" -f $logDict["LocalTime"].ToString("yyyy-MM-dd HH:mm:ss"), $levelAbbr, $logDict["Message"]
+                $formatted = "{0} [{1}] {2}" -f $logDict["LocalTime"].ToString("yyyy-MM-dd HH:mm:ss"), $levelAbbr, $logDict['Message']
                 Write-Host $formatted -ForegroundColor $color
             }
         }
