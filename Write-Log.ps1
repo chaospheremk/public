@@ -2,8 +2,8 @@ function Write-Log {
 
     [CmdletBinding()]
     param (
-        [Parameter(Mandatory, ParameterSetName = 'Default')]
-        [Parameter(ParameterSetName = 'Error')]
+        [Parameter(Mandatory, ParameterSetName = 'Default', Position = 0)]
+        [Parameter(ParameterSetName = 'Error', Position = 0)]
         [string]$Message,
 
         [Parameter(ParameterSetName = 'Default')]
@@ -56,23 +56,18 @@ function Write-Log {
         # Initialize internal metadata
         if ($Metadata) {
 
-            if ($Metadata -is [hashtable]) {
-
-                # Convert hashtable to a dictionary
-                $genDict = ConvertTo-Dictionary -Hashtable $Metadata
-
-                foreach ($key in $genDict.Keys) { $metadataDict[$key] = $genDict[$key] }
-            }
-            elseif ($Metadata -is [PSCustomObject] -or $Metadata.PSObject.Members.Count -gt 0) {
+            if ($Metadata -is [hashtable]) { $metadataDict = ConvertTo-Dictionary -Hashtable $Metadata }
+            elseif ($Metadata -is [PSCustomObject]) {
 
                 # Convert PSObject to a dictionary
-                foreach ($prop in $Metadata.PSObject.Properties) { $metadataDict[$prop.Name] = $prop.Value }
+                $noteProperties = ($Metadata.PSObject.Properties).Where({ $_.MemberType -eq 'NoteProperty'})
+                
+                foreach ($prop in $noteProperties) { $metadataDict[$prop.Name] = $prop.Value }
             }
             else {
 
-                # If Metadata is not a hashtable or PSObject, treat it as a raw value
-                # and store it under a special key
-                $metadataDict['RawValue'] = $Metadata
+                # If Metadata is not a hashtable or PSObject, throw error
+                throw "Metadata must be a hashtable or PSObject. Received: $($Metadata.GetType().FullName)"
             }
         }
 
@@ -251,19 +246,18 @@ function Read-Log {
 
                 $levelAbbr = switch ($entryLevel) {
 
-                    'ERROR' { 'ERR' }
-                    'WARN' { 'WRN' }
-                    'INFO' { 'INF' }
                     'DEBUG' { 'DBG' }
-                    default { $entryLevel.Substring(0, [Math]::Min(3, $entryLevel.Length)).ToUpperInvariant() }
+                    'ERROR' { 'ERR' }
+                    'INFO' { 'INF' }
+                    'WARN' { 'WRN' }
                 }
 
                 $color = switch ($entryLevel) {
 
-                    'ERROR' { 'Red' }
-                    'WARN' { 'Yellow' }
                     'DEBUG' { 'DarkGray' }
-                    default { 'Gray' }
+                    'ERROR' { 'Red' }
+                    'INFO' { 'Gray' }
+                    'WARN' { 'Yellow' }
                 }
 
                 $formatted = "{0} [{1}] {2}" -f $logDict["LocalTime"].ToString("yyyy-MM-dd HH:mm:ss"), $levelAbbr, $logDict['Message']
