@@ -70,7 +70,11 @@ function ConvertTo-Dictionary {
 
         [Parameter(Mandatory, ParameterSetName = 'FromHashtable')]
         [hashtable]
-        $Hashtable
+        $Hashtable,
+
+        [Parameter(Mandatory, ParameterSetName = 'FromObject')]
+        [PSObject]
+        $Object
     )
 
     begin { $dictionary = [System.Collections.Generic.Dictionary[string, PSObject]]::new() }
@@ -90,9 +94,13 @@ function ConvertTo-Dictionary {
                 }
             }
 
-            'FromHashtable' {
+            'FromHashtable' { foreach ($key in $Hashtable.Keys) { $dictionary[$key] = $Hashtable[$key] } }
 
-                foreach ($key in $Hashtable.Keys) { $dictionary[$key] = $Hashtable[$key] }
+            'FromObject' {
+
+                $noteProperties = ($Object.PSObject.Properties).Where({ $_.MemberType -eq 'NoteProperty' })
+                
+                foreach ($property in $noteProperties) { $dictionary[$property.Name] = $property.Value }
             }
         }
 

@@ -21,6 +21,15 @@ function Write-Log {
 
         [Parameter(ParameterSetName = 'Default')]
         [Parameter(ParameterSetName = 'Error')]
+        [ValidateScript({
+
+            if (($_ -is [hashtable]) -or ($_ -is [PSCustomObject])) { return $true }
+
+            $objectType = $_.GetType().FullName
+            $message = "Metadata object must be of type Hashtable or PSCustomObject. Received: [$objectType]."
+
+            Write-Error -Message $message -ErrorAction 'Stop'
+        })]
         [PSObject]$Metadata,
 
         [Parameter(Mandatory, ParameterSetName = 'Error')]
@@ -48,26 +57,14 @@ function Write-Log {
         $logEntry['Message'] = $Message
         $logEntry['CorrelationId'] = $CorrelationId
 
-        if ($Metadata -or ($Level -eq 'ERROR')) {
-            
-            $metadataDict = [System.Collections.Generic.Dictionary[string, PSObject]]::new()
-        }
-
-        # Initialize internal metadata
+        # If Metadata is a hashtable or PSObject, convert it to a dictionary
         if ($Metadata) {
 
-            if ($Metadata -is [hashtable]) { $metadataDict = ConvertTo-Dictionary -Hashtable $Metadata }
-            elseif ($Metadata -is [PSCustomObject]) {
+            switch ($Metadata) {
 
-                # Convert PSObject to a dictionary
-                $noteProperties = ($Metadata.PSObject.Properties).Where({ $_.MemberType -eq 'NoteProperty'})
-                
-                foreach ($prop in $noteProperties) { $metadataDict[$prop.Name] = $prop.Value }
-            }
-            else {
+                { $Metadata -is [hashtable] } { $metadataDict = ConvertTo-Dictionary -Hashtable $Metadata }
 
-                # If Metadata is not a hashtable or PSObject, throw error
-                throw "Metadata must be a hashtable or PSObject. Received: $($Metadata.GetType().FullName)"
+                { $Metadata -is [PSCustomObject] } { $metadataDict = ConvertTo-Dictionary -Object $Metadata }
             }
         }
 
@@ -78,42 +75,48 @@ function Write-Log {
 
             if ($invocationInfo) {
 
+                $scriptName = $invocationInfo.ScriptName
                 $scriptLineNumber = $invocationInfo.ScriptLineNumber
+                $commandName = $invocationInfo.MyCommand.Name
+                $positionMessage = $invocationInfo.PositionMessage
 
-                $errorScriptName = if ([string]::IsNullOrEmpty($invocationInfo.ScriptName)) { $null }
-                else { $invocationInfo.ScriptName }
+                $errorScriptName = [string]::IsNullOrEmpty($scriptName) ? $null : $scriptName
 
-                $errorLineNumber = if ($scriptLineNumber -gt 0) { $scriptLineNumber }
-                else { $null }
+                $errorLineNumber = $scriptLineNumber -gt 0 ? $scriptLineNumber : $null
 
-                $errorCommandName = if ($invocationInfo.MyCommand) { $invocationInfo.MyCommand.Name }
-                else { $null }
+                $errorCommandName = [string]::IsNullOrEmpty($commandName) ? $commandName : $null
 
-                $errorCommand = if ([string]::IsNullOrEmpty($errorCommandName)) { $null }
-                else { $errorCommandName }
-                
-                $errorPosition = if ([string]::IsNullOrEmpty($invocationInfo.PositionMessage)) { $null }
-                else { ($invocationInfo.PositionMessage -split "\n")[0] }
+                $checkPositionMessage = [string]::IsNullOrEmpty($positionMessage)
+                $errorPosition = $checkPositionMessage ? $null : ($positionMessage -split "\n")[0]
             }
 
             if ($ErrorObject.Exception) {
 
-                $errorMessage = if ([string]::IsNullOrEmpty($ErrorObject.Exception.Message)) { $null }
-                                else { $ErrorObject.Exception.Message }
+                $exceptionMessage = $ErrorObject.Exception.Message
+
+                $errorMessage = [string]::IsNullOrEmpty($exceptionMessage) ? $null : $exceptionMessage
 
                 $errorType = $ErrorObject.Exception.GetType().FullName
             }
 
+            # create error dictionary
             $errorDict['ScriptName'] = $errorScriptName
             $errorDict['LineNumber'] = $errorLineNumber
-            $errorDict["Command"] = $errorCommand
+            $errorDict["CommandName"] = $errorCommandName
             $errorDict["PositionMessage"] = $errorPosition
             $errorDict['Type'] = $errorType
             $errorDict['Message'] = $errorMessage
             
+            # add error dictionary to metadata dictionary
+            if (-not $metadataDict) {
+                
+                $metadataDict = [System.Collections.Generic.Dictionary[string, PSObject]]::new()
+            }
+
             $metadataDict['Error'] = $errorDict
         }
 
+        # if metadata dictionary count is greater than 0, add metadata dictionary to log entry dictionary
         if ($metadataDict.Count -gt 0) { $logEntry['Metadata'] = $metadataDict }
 
         try {
