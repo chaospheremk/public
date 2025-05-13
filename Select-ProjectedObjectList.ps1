@@ -153,41 +153,63 @@ function Invoke-DeclarativeReconciliation {
     [CmdletBinding()]
     param (
 
-        [Parameter(Mandatory)]
+        [Parameter(Mandatory, ParameterSetName = 'Default')]
+        [Parameter(Mandatory, ParameterSetName = 'LogEnabled')]
         [AllowNull()]
         [System.Collections.Generic.List[PSObject]]
         $SourceObjectList,
 
+        [Parameter(ParameterSetName = 'Default')]
+        [Parameter(ParameterSetName = 'LogEnabled')]
         [ScriptBlock]
         $SourceFilterBlock = { $_ },
 
+        [Parameter(ParameterSetName = 'Default')]
+        [Parameter(ParameterSetName = 'LogEnabled')]
         [ValidateNotNullOrEmpty()]
         [ScriptBlock]
         $SourceForEachBlock,
 
-        [Parameter(Mandatory)]
+        [Parameter(Mandatory, ParameterSetName = 'Default')]
+        [Parameter(Mandatory, ParameterSetName = 'LogEnabled')]
         [AllowNull()]
         [System.Collections.Generic.List[PSObject]]
         $TargetObjectList,
 
+        [Parameter(ParameterSetName = 'Default')]
+        [Parameter(ParameterSetName = 'LogEnabled')]
         [ScriptBlock]
         $TargetFilterBlock = { $_ },
 
+        [Parameter(ParameterSetName = 'Default')]
+        [Parameter(ParameterSetName = 'LogEnabled')]
         [ValidateNotNullOrEmpty()]
         [ScriptBlock]
         $TargetForEachBlock,
 
-        [Parameter(Mandatory)]
+        [Parameter(Mandatory, ParameterSetName = 'Default')]
+        [Parameter(Mandatory, ParameterSetName = 'LogEnabled')]
         [string]
         $KeyProperty,
 
-        [Parameter(Mandatory)]
+        [Parameter(Mandatory, ParameterSetName = 'Default')]
+        [Parameter(Mandatory, ParameterSetName = 'LogEnabled')]
         [ScriptBlock]
         $AddBlock,
 
-        [Parameter(Mandatory)]
+        [Parameter(Mandatory, ParameterSetName = 'Default')]
+        [Parameter(Mandatory, ParameterSetName = 'LogEnabled')]
         [ScriptBlock]
-        $RemoveBlock
+        $RemoveBlock,
+
+        [Parameter(ParameterSetName = 'Default')]
+        [Parameter(ParameterSetName = 'LogEnabled')]
+        [switch]
+        $LogEnabled,
+
+        [Parameter(Mandatory, ParameterSetName = 'LogEnabled')]
+        [hashtable]
+        $LogVariables
     )
 
     begin {
