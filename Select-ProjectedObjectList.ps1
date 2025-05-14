@@ -61,12 +61,17 @@ function ConvertTo-Dictionary {
 
         [Parameter(Mandatory, ParameterSetName = 'FromObjectList')]
         [AllowEmptyCollection()]
+        [AllowNull()]
         [System.Collections.Generic.List[PSObject]]
         $ObjectList,
 
         [Parameter(Mandatory, ParameterSetName = 'FromObjectList')]
         [string]
         $KeyProperty,
+
+        [Parameter(ParameterSetName = 'FromObjectList')]
+        [switch]
+        $KeyToLower,
 
         [Parameter(Mandatory, ParameterSetName = 'FromHashtable')]
         [hashtable]
@@ -87,7 +92,8 @@ function ConvertTo-Dictionary {
 
                 foreach ($object in $ObjectList) {
 
-                    $key = $object.$KeyProperty.ToString().Trim().ToLower()
+                    if ($KeyToLower) { $key = $object.$KeyProperty.ToString().Trim().ToLower() }
+                    else { $key = $object.$KeyProperty.ToString().Trim() }
 
                     try { $dictionary.Add($key, $object) }
                     catch { Write-Error -Message $_.Exception.Message }

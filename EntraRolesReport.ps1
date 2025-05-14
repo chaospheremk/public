@@ -1,110 +1,161 @@
+$secVaultFilePath = Join-Path "$env:USERPROFILE\SecretStore" SecretStore.Vault.Credential
+Unlock-SecretStore -Password (Import-CliXml -Path $secVaultFilePath)
+
+$paramsConnectMgGraph = @{
+    ClientId = Get-Secret -Name 'ClientId - djm-powershellautomation' | ConvertFrom-SecureString -AsPlainText
+    TenantId = Get-Secret -Name 'TenantId - dougjohnsonme.onmicrosoft.com' | ConvertFrom-SecureString -AsPlainText
+    CertificateThumbprint = Get-Secret -Name 'CertificateThumbprint - djm-powershellautomation' | ConvertFrom-SecureString -AsPlainText
+    NoWelcome = $true
+}
+
+Connect-MgGraph @paramsConnectMgGraph
+
+
 function Get-EntraRolesReport {
 
     [CmdletBinding()]
     Param()
 
     # Get all Entra users, store in dictionary
-    $propsMgUsers = @(
-        'DisplayName',
-        'GivenName',
-        'Id',
-        'JobTitle',
-        'Surname',
-        'UserPrincipalName'
-    )
+    try {
 
-    $paramsConvertToDictionary = @{
-        ObjectList = Get-MgUser -All -Property $propsMgUsers | Select-Object -Property $propsMgUsers
-        KeyProperty = 'Id'
+        $propsMgUsers = @(
+            'DisplayName',
+            'GivenName',
+            'Id',
+            'JobTitle',
+            'Surname',
+            'UserPrincipalName'
+        )
+
+        $paramsConvertToDictionary = @{
+            ObjectList = Get-MgUser -All -Property $propsMgUsers | Select-Object -Property $propsMgUsers
+            KeyProperty = 'Id'
+        }
+
+        $allMgUsersDict = ConvertTo-Dictionary @paramsConvertToDictionary
     }
-
-    $allMgUsersDict = ConvertTo-Dictionary @paramsConvertToDictionary
+    finally { Remove-Variable -Name @('propsMgUsers', 'paramsConvertToDictionary') }
 
     # Get all Entra service principals, store in dictionary
-    $propsMgServicePrincipals = @(
-        'AppId',
-        'DisplayName',
-        'Id',
-        'ServicePrincipalType'
-    )
+    try {
 
-    $paramsConvertToDictionary = @{
-        ObjectList = Get-MgServicePrincipal -All -Property $propsMgServicePrincipals |
-            Select-Object -Property $propsMgServicePrincipals
-        KeyProperty = 'Id'
+        $propsMgServicePrincipals = @(
+            'AppId',
+            'DisplayName',
+            'Id',
+            'ServicePrincipalType'
+        )
+
+        $paramsConvertToDictionary = @{
+            ObjectList = Get-MgServicePrincipal -All -Property $propsMgServicePrincipals |
+                Select-Object -Property $propsMgServicePrincipals
+            KeyProperty = 'Id'
+        }
+
+        $allMgServicePrincipalsDict = ConvertTo-Dictionary @paramsConvertToDictionary
     }
-
-    $allMgServicePrincipalsDict = ConvertTo-Dictionary @paramsConvertToDictionary
+    finally { Remove-Variable -Name @('propsMgServicePrincipals', 'paramsConvertToDictionary') }
 
     # Get all Entra groups, store in dictionary
-    $propsMgGroups = @(
-        'Description',
-        'DisplayName',
-        'Id'
-    )
+    $allRoleAssignedGroupsDict = [System.Collections.Generic.Dictionary[string, PSObject]]::new()
 
-    $paramsConvertToDictionary = @{
-        ObjectList = Get-MgGroup -All -Property $propsMgGroups | Select-Object -Property $propsMgGroups
-        KeyProperty = 'Id'
+    try {
+
+        $propsMgGroups = @('Description', 'DisplayName', 'Id')
+
+        $paramsGetMgGroup = @{
+            All = $true
+            Filter = "IsAssignableToRole eq true"
+            Property = $propsMgGroups
+        }
+
+        $paramsConvertToDictionary = @{
+            ObjectList = Get-MgGroup @paramsGetMgGroup | Select-Object -Property $propsMgGroups
+            KeyProperty = 'Id'
+        }
+
+        $roleAssignedGroupsDict = ConvertTo-Dictionary @paramsConvertToDictionary
+
+        foreach ($key in $roleAssignedGroupsDict.Keys) {
+
+            $group = $roleAssignedGroupsDict[$key]
+
+            [System.Collections.Generic.HashSet[string]]$groupMemberIds = (Get-MgBetaGroupTransitiveMember -GroupId $group.Id).Id
+
+            $groupObject = [PSCustomObject]@{
+                Description = $group.Description
+                DisplayName = $group.DisplayName
+                Id = $group.Id
+                Members = $groupMemberIds
+            }
+
+            $allRoleAssignedGroupsDict.Add($group.Id, $groupObject)
+        }
     }
+    finally {
 
-    $allMgGroupsDict = ConvertTo-Dictionary @paramsConvertToDictionary
+        Remove-Variable -Name @(
+
+            'propsMgGroups', 'paramsGetMgGroup', 'paramsConvertToDictionary', 'roleAssignedGroupsDict'
+        )
+    }                   
 
     # Get all Entra Role assignments, store in dictionary
-    $propsRoleAssignments = @(
-        'DirectoryScopeId',
-        'Id',
-        'PrincipalId',
-        'RoleDefinitionId'
-    )
+    try {
 
-    $paramsConvertToDictionary = @{
-        ObjectList = Get-MgRoleManagementDirectoryRoleAssignment -All -Property $propsRoleAssignments |
-            Select-Object -Property $propsRoleAssignments
-        KeyProperty = 'Id'
+        $propsRoleAssignments = @('DirectoryScopeId', 'Id', 'PrincipalId', 'RoleDefinitionId')
+
+        $paramsConvertToDictionary = @{
+            ObjectList = Get-MgRoleManagementDirectoryRoleAssignment -All -Property $propsRoleAssignments |
+                Select-Object -Property $propsRoleAssignments
+            KeyProperty = 'Id'
+        }
+
+        $allRoleAssignmentsDict = ConvertTo-Dictionary @paramsConvertToDictionary
     }
-
-    $allRoleAssignmentsDict = ConvertTo-Dictionary @paramsConvertToDictionary
+    finally { Remove-Variable -Name @('propsRoleAssignments', 'paramsConvertToDictionary') }
 
     # Get all Entra Role definitions, store in dictionary
-    $propsRoleDefinitions = @(
-        'Description',
-        'DisplayName',
-        'Id',
-        'IsBuiltIn',
-        'IsEnabled',
-        'ResourceScopes'
-    )
+    try {
 
-    $paramsConvertToDictionary = @{
-        ObjectList = Get-MgRoleManagementDirectoryRoleDefinition -All -Property $propsRoleDefinitions |
-            Select-Object -Property $propsRoleDefinitions
-        KeyProperty = 'Id'
+        $propsRoleDefinitions = @(
+            'Description',
+            'DisplayName',
+            'Id',
+            'IsBuiltIn',
+            'IsEnabled',
+            'ResourceScopes'
+        )
+
+        $paramsConvertToDictionary = @{
+            ObjectList = Get-MgRoleManagementDirectoryRoleDefinition -All -Property $propsRoleDefinitions |
+                Select-Object -Property $propsRoleDefinitions
+            KeyProperty = 'Id'
+        }
+
+        $allRoleDefinitionsDict = ConvertTo-Dictionary @paramsConvertToDictionary
     }
-
-    $allRoleDefinitionsDict = ConvertTo-Dictionary @paramsConvertToDictionary
+    finally { Remove-Variable -Name @('propsRoleDefinitions', 'paramsConvertToDictionary') }
 
     # Get all Entra Administrative Units, store in dictionary
-    $propsAdminUnits = @(
-        'Description',
-        'DisplayName',
-        'Id',
-        'IsMemberManagementRestricted'
-    )
+    try {
 
-    $paramsConvertToDictionary = @{
-        ObjectList = Get-MgDirectoryAdministrativeUnit -All -Property $propsAdminUnits |
-            Select-Object -Property $propsAdminUnits
-        KeyProperty = 'Id'
+        $propsAdminUnits = @('Description', 'DisplayName', 'Id', 'IsMemberManagementRestricted')
+
+        $paramsConvertToDictionary = @{
+            ObjectList = Get-MgDirectoryAdministrativeUnit -All -Property $propsAdminUnits |
+                Select-Object -Property $propsAdminUnits
+            KeyProperty = 'Id'
+        }
+
+        $allAdminUnitsDict = ConvertTo-Dictionary @paramsConvertToDictionary
     }
-
-    $allAdminUnitsDict = ConvertTo-Dictionary @paramsConvertToDictionary
+    finally { Remove-Variable -Name @('propsAdminUnits', 'paramsConvertToDictionary') }
 
 
     # start logic
     $resultsList = [System.Collections.Generic.List[PSObject]]::new()
-    $assignedGroupsDict = [System.Collections.Generic.Dictionary[string, PSObject]]::new()
-    $groupMembersDict = [System.Collections.Generic.Dictionary[string, PSObject]]::new()
 
     foreach ($key in $allRoleAssignmentsDict.Keys) {
 
@@ -112,14 +163,27 @@ function Get-EntraRolesReport {
         $roleAssignmentDirectoryScopeId = $roleAssignment.DirectoryScopeId
         $principalId = $roleAssignment.PrincipalId
         $roleDefinitionId = $roleAssignment.RoleDefinitionId
-        $roleDefinition = $allRoleDefinitionsDict[$roleDefinitionId]
 
+        if (-not $allRoleDefinitionsDict.ContainsKey($roleDefinitionId)) { 
+
+            $paramsGetRoleDefinition = @{
+                UnifiedRoleDefinitionId = $roleDefinitionId
+                Property = $propsRoleDefinitions
+            }
+
+            $roleDefinitionObject = Get-MgRoleManagementDirectoryRoleDefinition @paramsGetRoleDefinition |
+                Select-Object -Property $propsRoleDefinitions
+
+            $allRoleDefinitionsDict.Add($roleDefinitionId, $roleDefinitionObject) 
+        }
+
+        $roleDefinition = $allRoleDefinitionsDict[$roleDefinitionId]
         $roleDescription = $roleDefinition.Description
         $roleDisplayName = $roleDefinition.DisplayName
         $roleId = $roleDefinition.Id
         $roleIsBuiltIn = $roleDefinition.IsBuiltIn
         $roleIsEnabled = $roleDefinition.IsEnabled
-        $roleResourceScopes = $roleDefinition.ResourceScopes
+        $roleResourceScopes = ($roleDefinition.ResourceScopes -join ',')
 
         $directoryScope = switch ($roleAssignmentDirectoryScopeId) {
 
@@ -137,130 +201,81 @@ function Get-EntraRolesReport {
 
             {$allMgUsersDict.ContainsKey($_)} {
 
-                $object = $allMgUsersDict[$_]
-
+                $object = $allMgUsersDict[$principalId]
+                $objectId = $object.Id
+                $objectDisplayName = $object.DisplayName
                 $objectType = 'User'
                 $userGivenName = $object.GivenName
                 $userJobTitle = $object.JobTitle
                 $userSurname = $object.Surname
                 $userUserPrincipalName = $object.UserPrincipalName
-                $groupDescription = $null
                 $spAppId = $null
                 $spServicePrincipalType = $null
             }
 
             {$allMgServicePrincipalsDict.ContainsKey($_)} {
 
-                $object = $allMgServicePrincipalsDict[$_]
-
+                $object = $allMgServicePrincipalsDict[$principalId]
+                $objectId = $object.Id
+                $objectDisplayName = $object.DisplayName
                 $objectType = 'ServicePrincipal'
                 $userGivenName = $null
                 $userJobTitle = $null
                 $userSurname = $null
                 $userUserPrincipalName = $null
-                $groupDescription = $null
                 $spAppId = $object.AppId
                 $spServicePrincipalType = $object.ServicePrincipalType
             }
 
-            {$allMgGroupsDict.ContainsKey($_)} {
+            {$allRoleAssignedGroupsDict.ContainsKey($_)} {
 
-                $object = $allMgGroupsDict[$_]
-                $objectId = $object.Id
-                $objectDisplayName = $object.DisplayName
+                $groupObject = $allRoleAssignedGroupsDict[$principalId]
+                $groupObjectId = $groupObject.Id
+                $groupObjectDisplayName = $groupObject.DisplayName
+                $groupObjectDescription = $groupObject.Description
 
-                if (-not $assignedGroupsDict.ContainsKey($_)) {
-                    
-                    #$assignedGroupsDict.Add($_, $object)
-                    $groupMemberIds = (Get-MgGroupMember -All -GroupId $_ -Property 'Id').Id
+                foreach ($member in $groupObject.Members) {
 
-                    $assignedGroupsDict.Add($_, $groupMemberIds)
-                }
+                    switch ($member) {
 
-                $groupMembersDict = [System.Collections.Generic.Dictionary[string, string]]::new()
-                
-                foreach ($id in $assignedGroupsDict[$_]) {
+                        {$allMgUsersDict.ContainsKey($_)} {
 
-                    $groupMemberType = switch ($id) {
-
-                        {$allMgUsersDict.ContainsKey($_)} { 'User' }
-                        {$allMgServicePrincipalsDict.ContainsKey($_)} { 'ServicePrincipal' }
-                        {$allMgGroupsDict.ContainsKey($_)} { 'Group' }
-                        default { 'Unknown' }
-                    }
-
-                    $groupMembersDict.Add($id, $groupMemberType)
-                }
-
-                foreach ($key in $groupMembersDict.Keys) {
-
-                    $objectType = $groupMembersDict[$key]
-
-                    switch ($groupMembersDict[$key]) {
-                        
-                        {'User'} { 
-
-                            $memberObject = $allMgUsersDict[$key]
-
+                            $memberObject = $allMgUsersDict[$member]
                             $memberObjectId = $memberObject.Id
                             $memberObjectDisplayName = $memberObject.DisplayName
-                            $objectType = $_
+                            $memberObjectType = 'User'
                             $userGivenName = $memberObject.GivenName
                             $userJobTitle = $memberObject.JobTitle
                             $userSurname = $memberObject.Surname
                             $userUserPrincipalName = $memberObject.UserPrincipalName
-                            $groupDescription = $null
                             $spAppId = $null
                             $spServicePrincipalType = $null
-                        
                         }
 
-                        {'ServicePrincipal'} {
+                        {$allMgServicePrincipalsDict.ContainsKey($_)} {
 
-                            $memberObject = $allMgServicePrincipalsDict[$key]
-
+                            $memberObject = $allMgServicePrincipalsDict[$member]
                             $memberObjectId = $memberObject.Id
                             $memberObjectDisplayName = $memberObject.DisplayName
-                            $objectType = $_
+                            $memberObjectType = 'ServicePrincipal'
                             $userGivenName = $null
                             $userJobTitle = $null
                             $userSurname = $null
                             $userUserPrincipalName = $null
-                            $groupDescription = $null
                             $spAppId = $memberObject.AppId
                             $spServicePrincipalType = $memberObject.ServicePrincipalType
                         }
-
-                        {'Group'} {
-                            
-                            $memberObject = $allMgGroupsDict[$key]
-                            
-                            $memberObjectId = $memberObject.Id
-                            $memberObjectDisplayName = $memberObject.DisplayName
-                            $objectType = $_
-                            $userGivenName = $null
-                            $userJobTitle = $null
-                            $userSurname = $null
-                            $userUserPrincipalName = $null
-                            $groupDescription = $memberObject.Description
-                            $spAppId = $null
-                            $spServicePrincipalType = $null
-                        }
                     }
-
-                    $assignmentGroup = $allMgGroupsDict[$objectId]
 
                     $resultsList.Add(
 
                         [PSCustomObject]@{
                             ObjectId = $memberObjectId
                             ObjectDisplayName = $memberObjectDisplayName
-                            ObjectType = $objectType
+                            ObjectType = $memberObjectType
                             AssignmentDirectoryScopeId = $roleAssignmentDirectoryScopeId
                             AssignmentDirectoryScope = $directoryScope
-                            AssignmentType = 'Group Inherited'
-                            AssignmentGroupDisplayName = $assignmentGroup.DisplayName
-                            AssignmentGroupId = $assignmentGroup.Id
+                            AssignmentType = 'Group'
                             RoleDescription = $roleDescription
                             RoleDisplayName = $roleDisplayName
                             RoleId = $roleId
@@ -271,23 +286,18 @@ function Get-EntraRolesReport {
                             UserJobTitle = $userJobTitle
                             UserSurname = $userSurname
                             UserUserPrincipalName = $userUserPrincipalName
-                            GroupDescription = $groupDescription
                             SpAppId = $spAppId
                             SpServicePrincipalType = $spServicePrincipalType
+                            GroupDescription = $groupObjectDescription
+                            GroupDisplayName = $groupObjectDisplayName
+                            GroupId = $groupObjectId
                         }
                     )
                 }
-
-                $objectType = 'Group'
-                $userGivenName = $null
-                $userJobTitle = $null
-                $userSurname = $null
-                $userUserPrincipalName = $null
-                $groupDescription = $object.Description
-                $spAppId = $null
-                $spServicePrincipalType = $null
             }
         }
+
+        if ($allRoleAssignedGroupsDict.ContainsKey($principalId)) { continue }
 
         $resultsList.Add(
 
@@ -298,8 +308,6 @@ function Get-EntraRolesReport {
                 AssignmentDirectoryScopeId = $roleAssignmentDirectoryScopeId
                 AssignmentDirectoryScope = $directoryScope
                 AssignmentType = 'Direct'
-                AssignmentGroupDisplayName = $null
-                AssignmentGroupId = $null
                 RoleDescription = $roleDescription
                 RoleDisplayName = $roleDisplayName
                 RoleId = $roleId
@@ -310,10 +318,14 @@ function Get-EntraRolesReport {
                 UserJobTitle = $userJobTitle
                 UserSurname = $userSurname
                 UserUserPrincipalName = $userUserPrincipalName
-                GroupDescription = $groupDescription
                 SpAppId = $spAppId
                 SpServicePrincipalType = $spServicePrincipalType
+                GroupDescription = $null
+                GroupDisplayName = $null
+                GroupId = $null
             }
         )
     }
+
+    $resultsList
 }
