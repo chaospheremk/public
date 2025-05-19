@@ -61,6 +61,7 @@ function ConvertTo-Dictionary {
 
         [Parameter(Mandatory, ParameterSetName = 'FromObjectList')]
         [AllowEmptyCollection()]
+        [AllowNull()]
         [System.Collections.Generic.List[PSObject]]
         $ObjectList,
 
@@ -68,9 +69,17 @@ function ConvertTo-Dictionary {
         [string]
         $KeyProperty,
 
+        [Parameter(ParameterSetName = 'FromObjectList')]
+        [switch]
+        $KeyToLower,
+
         [Parameter(Mandatory, ParameterSetName = 'FromHashtable')]
         [hashtable]
-        $Hashtable
+        $Hashtable,
+
+        [Parameter(Mandatory, ParameterSetName = 'FromObject')]
+        [PSObject]
+        $Object
     )
 
     begin { $dictionary = [System.Collections.Generic.Dictionary[string, PSObject]]::new() }
@@ -83,16 +92,21 @@ function ConvertTo-Dictionary {
 
                 foreach ($object in $ObjectList) {
 
-                    $key = $object.$KeyProperty.ToString().Trim().ToLower()
+                    if ($KeyToLower) { $key = $object.$KeyProperty.ToString().Trim().ToLower() }
+                    else { $key = $object.$KeyProperty.ToString().Trim() }
 
                     try { $dictionary.Add($key, $object) }
                     catch { Write-Error -Message $_.Exception.Message }
                 }
             }
 
-            'FromHashtable' {
+            'FromHashtable' { foreach ($key in $Hashtable.Keys) { $dictionary[$key] = $Hashtable[$key] } }
 
-                foreach ($key in $Hashtable.Keys) { $dictionary[$key] = $Hashtable[$key] }
+            'FromObject' {
+
+                $noteProperties = ($Object.PSObject.Properties).Where({ $_.MemberType -eq 'NoteProperty' })
+                
+                foreach ($property in $noteProperties) { $dictionary[$property.Name] = $property.Value }
             }
         }
 
@@ -145,41 +159,63 @@ function Invoke-DeclarativeReconciliation {
     [CmdletBinding()]
     param (
 
-        [Parameter(Mandatory)]
+        [Parameter(Mandatory, ParameterSetName = 'Default')]
+        [Parameter(Mandatory, ParameterSetName = 'LogEnabled')]
         [AllowNull()]
         [System.Collections.Generic.List[PSObject]]
         $SourceObjectList,
 
+        [Parameter(ParameterSetName = 'Default')]
+        [Parameter(ParameterSetName = 'LogEnabled')]
         [ScriptBlock]
         $SourceFilterBlock = { $_ },
 
+        [Parameter(ParameterSetName = 'Default')]
+        [Parameter(ParameterSetName = 'LogEnabled')]
         [ValidateNotNullOrEmpty()]
         [ScriptBlock]
         $SourceForEachBlock,
 
-        [Parameter(Mandatory)]
+        [Parameter(Mandatory, ParameterSetName = 'Default')]
+        [Parameter(Mandatory, ParameterSetName = 'LogEnabled')]
         [AllowNull()]
         [System.Collections.Generic.List[PSObject]]
         $TargetObjectList,
 
+        [Parameter(ParameterSetName = 'Default')]
+        [Parameter(ParameterSetName = 'LogEnabled')]
         [ScriptBlock]
         $TargetFilterBlock = { $_ },
 
+        [Parameter(ParameterSetName = 'Default')]
+        [Parameter(ParameterSetName = 'LogEnabled')]
         [ValidateNotNullOrEmpty()]
         [ScriptBlock]
         $TargetForEachBlock,
 
-        [Parameter(Mandatory)]
+        [Parameter(Mandatory, ParameterSetName = 'Default')]
+        [Parameter(Mandatory, ParameterSetName = 'LogEnabled')]
         [string]
         $KeyProperty,
 
-        [Parameter(Mandatory)]
+        [Parameter(Mandatory, ParameterSetName = 'Default')]
+        [Parameter(Mandatory, ParameterSetName = 'LogEnabled')]
         [ScriptBlock]
         $AddBlock,
 
-        [Parameter(Mandatory)]
+        [Parameter(Mandatory, ParameterSetName = 'Default')]
+        [Parameter(Mandatory, ParameterSetName = 'LogEnabled')]
         [ScriptBlock]
-        $RemoveBlock
+        $RemoveBlock,
+
+        [Parameter(ParameterSetName = 'Default')]
+        [Parameter(ParameterSetName = 'LogEnabled')]
+        [switch]
+        $LogEnabled,
+
+        [Parameter(Mandatory, ParameterSetName = 'LogEnabled')]
+        [hashtable]
+        $LogVariables
     )
 
     begin {
