@@ -28,7 +28,8 @@ function Connect-ToGraph {
         }
         $tokenResponse = Invoke-RestMethod -Uri "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token" -Method Post -ContentType "application/x-www-form-urlencoded" -Body $tokenRequestBody
         Connect-MgGraph -AccessToken $tokenResponse.access_token
-    } else {
+    }
+    else {
         # Interactive login
         Connect-MgGraph -Scopes "DeviceManagementManagedDevices.Read.All AuditLog.Read.All Device.Read.All"
     }
@@ -37,48 +38,59 @@ function Connect-ToGraph {
 # Function to get the last Cloud PC sign-in activity using sign-in logs
 function Get-CloudPCSignInActivity {
     param (
-        [Parameter(Mandatory = $true)]
-        [string[]]$UserPrincipalNames
+        [Parameter(Mandatory)]
+        [string[]]$UserPrincipalName
     )
 
-    $signInData = @()
+    $resultsList = [System.Collections.Generic.List[PSObject]]
 
-    foreach ($user in $UserPrincipalNames) {
+    foreach ($user in $UserPrincipalName) {
+
         try {
             # Get last sign-in data for the user specifically for Windows 365 Cloud PC
-            $signIn = Get-MgAuditLogSignIn -Filter "userPrincipalName eq '$user' and appDisplayName eq 'Windows 365'" -Top 1 | Sort-Object -Property createdDateTime -Descending | Select-Object -First 1
+            $filterString = "userPrincipalName eq '$user' and appDisplayName eq 'Windows 365'"
+            $signIn = Get-MgAuditLogSignIn -Filter $filterString -Top 1 |
+                          Sort-Object -Property 'createdDateTime' -Descending
 
             if ($signIn) {
-                $signInData += [pscustomobject]@{
-                    UserPrincipalName = $user
-                    LastSignInDateTime = $signIn.CreatedDateTime
-                    Status            = $signIn.Status.ErrorCode -eq 0 ? 'Success' : 'Failure'
-                }
+
+                $resultsList.Add(
+
+                    [PSCustomObject]@{
+                        UserPrincipalName  = $user
+                        LastSignInDateTime = $signIn.CreatedDateTime
+                        Status             = $signIn.Status.ErrorCode -eq 0 ? 'Success' : 'Failure'
+                    }
+                )
             }
             else {
-                $signInData += [pscustomobject]@{
-                    UserPrincipalName = $user
-                    LastSignInDateTime = "No recent sign-ins"
-                    Status             = "N/A"
-                }
+
+                $resultsList.Add(
+
+                    [PSCustomObject]@{
+                        UserPrincipalName  = $user
+                        LastSignInDateTime = "No recent sign-ins"
+                        Status             = "N/A"
+                    }
+                )
             }
         }
-        catch {
-            Write-Error "Failed to retrieve sign-in data for user $user. Error: $_"
-        }
+        catch { Write-Error "Failed to retrieve sign-in data for user $user. Error: $_" }
     }
 
-    return $signInData
+    return $resultsList
 }
 
 # Connect to Microsoft Graph interactively
 Connect-ToGraph
 
 # List of Cloud PC users' UPNs
-$userList = (Get-MgDeviceManagementManagedDevice -Filter "contains(operatingSystem, 'Windows') and contains(managementAgent, 'Microsoft Managed Desktop')" -All).UserPrincipalName | Where-Object { $_ -ne $null }
+Set-Alias -Name 'Get-MgDMMD' -Value 'Get-MgDeviceManagementManagedDevice'
+$filterString = "contains(operatingSystem, 'Windows') and contains(managementAgent, 'Microsoft Managed Desktop')"
+$userList = ((Get-MgDMMD -Filter $filterString -All).UserPrincipalName).Where({ $_ -ne $null })
 
 # Get Cloud PC sign-in activity
-$cloudPCSignInData = Get-CloudPCSignInActivity -UserPrincipalNames $userList
+$cloudPCSignInData = Get-CloudPCSignInActivity -UserPrincipalName $userList
 
 # Display Cloud PC sign-in data
 $cloudPCSignInData | Format-Table -AutoSize
