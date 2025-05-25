@@ -8,11 +8,16 @@ Import-Module Microsoft.Graph
 
 # Function to connect to Microsoft Graph using an app registration or interactive login
 function Connect-ToGraph {
+
+    [CmdletBinding()]
     param(
+
         [Parameter(Mandatory = $false)]
         [string]$ClientId,
+
         [Parameter(Mandatory = $false)]
         [string]$TenantId,
+
         [Parameter(Mandatory = $false)]
         [string]$ClientSecret
     )
@@ -20,14 +25,9 @@ function Connect-ToGraph {
     if ($ClientId -and $TenantId -and $ClientSecret) {
         # Connect using app credentials
         $secureClientSecret = ConvertTo-SecureString $ClientSecret -AsPlainText -Force
-        $tokenRequestBody = @{
-            client_id     = $ClientId
-            scope         = "https://graph.microsoft.com/.default"
-            client_secret = $secureClientSecret
-            grant_type    = "client_credentials"
-        }
-        $tokenResponse = Invoke-RestMethod -Uri "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token" -Method Post -ContentType "application/x-www-form-urlencoded" -Body $tokenRequestBody
-        Connect-MgGraph -AccessToken $tokenResponse.access_token
+        $credential = [System.Management.Automation.PSCredential]::new($ClientId, $secureClientSecret)
+
+        Connect-MgGraph -TenantId $tenantId -ClientSecretCredential $credential
     }
     else {
         # Interactive login
@@ -37,12 +37,15 @@ function Connect-ToGraph {
 
 # Function to get the last Cloud PC sign-in activity using sign-in logs
 function Get-CloudPCSignInActivity {
+
+    [CmdletBinding()]
     param (
+
         [Parameter(Mandatory)]
         [string[]]$UserPrincipalName
     )
 
-    $resultsList = [System.Collections.Generic.List[PSObject]]
+    $resultsList = [System.Collections.Generic.List[PSObject]]::new()
 
     foreach ($user in $UserPrincipalName) {
 
@@ -87,10 +90,10 @@ Connect-ToGraph
 # List of Cloud PC users' UPNs
 Set-Alias -Name 'Get-MgDMMD' -Value 'Get-MgDeviceManagementManagedDevice'
 $filterString = "contains(operatingSystem, 'Windows') and contains(managementAgent, 'Microsoft Managed Desktop')"
-$userList = ((Get-MgDMMD -Filter $filterString -All).UserPrincipalName).Where({ $_ -ne $null })
+$userPrincipalNames = ((Get-MgDMMD -Filter $filterString -All).UserPrincipalName).Where({ $_ -ne $null })
 
 # Get Cloud PC sign-in activity
-$cloudPCSignInData = Get-CloudPCSignInActivity -UserPrincipalName $userList
+$cloudPCSignInData = Get-CloudPCSignInActivity -UserPrincipalName $userPrincipalNames
 
 # Display Cloud PC sign-in data
 $cloudPCSignInData | Format-Table -AutoSize
