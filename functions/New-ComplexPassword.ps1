@@ -59,7 +59,7 @@ function New-ComplexPassword {
         $pwList.Add( ($charSet.Special | Get-SecureRandom) )
 
         # Generate the remaining characters randomly
-        for ([int]$i = $pwList.count; $i -lt $Length; $i++) { 
+        for ($i = $pwList.count; $i -lt $Length; $i++) { 
             
             $pwList.Add( ($charSet.All | Get-SecureRandom) )
         }
