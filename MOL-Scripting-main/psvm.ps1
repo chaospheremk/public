@@ -1,1 +1,1 @@
-Get-Service | select -First 15
+Get-Service | Select-Object -First 15
