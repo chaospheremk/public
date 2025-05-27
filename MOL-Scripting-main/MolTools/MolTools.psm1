@@ -1,49 +1,56 @@
 function Get-TMMachineInfo {
+
 <#
     .SYNOPSIS
-        Retrieves specific information about one or more computers using WMI or
-        CIM.
+        Retrieves specific information about one or more computers using WMI or CIM.
 
     .DESCRIPTION
-        This command uses either WMI or CIM to retrieve specific information about
-        one or more computers. You must run this command as a user with
-        permission to query CIM or WMI on the machines involved remotely. You can
-        specify a starting protocol (CIM by default), and specify
-        that the other protocol be used on a per-machine basis in the event of a
-        failure
+        This command uses either WMI or CIM to retrieve specific information about one or more
+        computers. You must run this command as a user with permission to query CIM or WMI on the
+        machines involved remotely. You can specify a starting protocol (CIM by default), and specify
+        that the other protocol be used on a per-machine basis in the event of a failure.
 
     .PARAMETER ComputerName
-        One or more computer names. When using WMI, this can also be IP addresses.
-        IP addresses may not work for CIM.
+        One or more computer names. When using WMI, this can also be IP addresses. IP addresses may
+        not work for CIM.
 
     .PARAMETER Credential
         A PS credential to specify if connecting with a different user account.
 
     .PARAMETER LogFailuresToPath
-        A path and filename to write failed computer names to. If omitted, no log
-        will be written.
+        A path and filename to write failed computer names to. If omitted, no
+        log will be written.
 
     .PARAMETER Protocol
-        Valid values: Wsman (uses CIM) or Dcom (uses WMI). It will be used for all
-        machines. "Wsman" is the default.
+        Valid values: Wsman (uses CIM) or Dcom (uses WMI). It will be used for all machines. "Wsman"
+        is the default.
 
     .PARAMETER ProtocolFallback
         Specify this to try the other protocol if a machine fails automatically.
 
-    .EXAMPLE
-        Get-TMMachineInfo -ComputerName ONE,TWO,THREE
-        This example will query three machines when multiple computer names are
-        specified directly in the ComputerName parameter.
+    .INPUTS
+        System.String
+        You can pipe a string that contains a computer name to this cmdlet.
+
+    .OUTPUTS
+        System.Management.Automation.PSCustomObject
+        The cmdlet outputs a custom PSObject for reporting results.
 
     .EXAMPLE
-        ONE,TWO,THREE | Get-TMMachineInfo
-        This example will query three machines when multiple computer names are
-        passed through the pipeline to Get-TMMachineInfo.
+        PS> Get-TMMachineInfo -ComputerName ONE,TWO,THREE
+        This example will query three machines when multiple computer names are specified directly in
+        the ComputerName parameter.
 
     .EXAMPLE
-        Get-ADComputer -Filter * | Select -ExpandProperty Name | Get-TMMachineInfo
+        PS> ONE,TWO,THREE | Get-TMMachineInfo
+        This example will query three machines when multiple computer names are passed through the
+        pipeline to Get-TMMachineInfo.
+
+    .EXAMPLE
+        PS> Get-ADComputer -Filter * | Select -ExpandProperty Name | Get-TMMachineInfo
         This example will attempt to query all machines in AD.
 #>
+
     [CmdletBinding()]
     param (
 
@@ -69,7 +76,11 @@ function Get-TMMachineInfo {
     begin {
 
         $sessionOption = New-CimSessionOption -Protocol $Protocol
-        $paramsNewCimSession = @{ SessionOption = $sessionOption }
+        $paramsNewCimSession = @{
+            SessionOption = $sessionOption
+            Verbose       = $false
+            ErrorAction = 'Stop'
+        }
 
         if ($PSBoundParameters.ContainsKey('Credential')) { $paramsNewCimSession.Credential = $Credential }
 
@@ -78,22 +89,19 @@ function Get-TMMachineInfo {
             'NumberOfProcessors', 'NumberOfLogicalProcessors'
         )
 
-        $propsOS = @(
-            'Version', 'BuildNumber', 'ServicePackMajorVersion',
-            'ServicePackMinorVersion', 'SystemDrive'
-        )
+        $propsOS = @( 'Version', 'BuildNumber', 'ServicePackMajorVersion', 'SystemDrive' )
 
-        $paramsGetCimCompSys = @{
+        $paramsGetCS = @{
             ClassName = 'Win32_ComputerSystem'
             Property  = $propsCompSys
         }
 
-        $paramsGetCimProc = @{
+        $paramsGetProc = @{
             ClassName = 'Win32_Processor'
             Property  = 'AddressWidth'
         }
 
-        $paramsGetCimOS = @{
+        $paramsGetOS = @{
             ClassName = 'Win32_OperatingSystem'
             Property  = $propsOS
         }
@@ -103,52 +111,142 @@ function Get-TMMachineInfo {
 
         foreach ($computer in $ComputerName) {
 
+            Write-Verbose "Connecting to $computer over $protocol"
+
             $paramsNewCimSession.ComputerName = $computer
-            $cimSession = New-CimSession @paramsNewCimSession
 
-            $paramsGetCimCompSys.CimSession = $cimSession
-            $computerInfo = Get-CimInstance @paramsGetCimCompSys | Select-Object -Property $propsCompSys
+            try {
 
-            $totalRamGB = [math]::Round(($computerInfo.TotalPhysicalMemory / 1GB), 2)
+                $cimSession = New-CimSession @paramsNewCimSession
 
-            $paramsGetCimProc.CimSession = $cimSession
-            $cpuType = Get-CimInstance @paramsGetCimProc | Select-Object -First 1 -ExpandProperty 'AddressWidth'
+                $paramsGetCS.CimSession = $cimSession
+                $computerInfo = Get-CimInstance @paramsGetCS | Select-Object -Property $propsCompSys
 
-            $paramsGetCimOS.CimSession = $cimSession
-            $osInfo = Get-CimInstance @paramsGetCimOS | Select-Object -Property $propsOS
+                $paramsGetProc.CimSession = $cimSession
+                $procArch = Get-CimInstance @paramsGetProc | Select-Object -First 1 -ExpandProperty 'AddressWidth'
 
-            $paramsGetCimFreeSpace = @{
-                Query      = "SELECT FreeSpace FROM Win32_LogicalDisk WHERE DeviceID='$($osInfo.SystemDrive)'"
-                CimSession = $cimSession
+                $paramsGetOS.CimSession = $cimSession
+                $osInfo = Get-CimInstance @paramsGetOS | Select-Object -Property $propsOS
+
+                $paramsGetFreeSpace = @{
+                    Query      = "SELECT FreeSpace FROM Win32_LogicalDisk WHERE DeviceID='$($osInfo.SystemDrive)'"
+                    CimSession = $cimSession
+                }
+
+                $freeSpace = Get-CimInstance @paramsGetFreeSpace | Select-Object -ExpandProperty 'FreeSpace'
+
+                $cimSession | Remove-CimSession
+
+                [PSCustomObject] @{
+                    ComputerName              = $computerInfo.Name
+                    OSVersion                 = $osInfo.Version
+                    SPVersion = $osInfo.ServicePackMajorVersion
+                    OSBuild             = $osInfo.BuildNumber
+                    Manufacturer      = $computerInfo.Manufacturer
+                    Model             = $computerInfo.Model
+                    Procs    = $computerInfo.NumberOfProcessors
+                    Cores      = $computerInfo.NumberOfLogicalProcessors
+                    RAM    = [math]::Round(($computerInfo.TotalPhysicalMemory / 1GB), 2)
+                    Arch           = $procArch
+                    SysDriveFreeSpace       = [math]::Round(($freeSpace / 1GB), 2)
+                }
             }
+            catch {
 
-            $freeSpace = Get-CimInstance @paramsGetCimFreeSpace | Select-Object -ExpandProperty 'FreeSpace'
-            $freeSpaceGB = [math]::Round(($freeSpace / 1GB), 2)
+                Write-Warning "FAILED $computer on $protocol"
 
-            $cimSession | Remove-CimSession
+                if ($ProtocolFallback) {
 
-            [PSCustomObject] @{
-                ComputerName              = $computerInfo.Name
-                ComputerManufacturer      = $computerInfo.Manufacturer
-                ComputerModel             = $computerInfo.Model
-                'ComputerTotalRAM(GB)'    = $totalRamGB
-                ComputerCPUType           = $cpuType
-                ComputerCPUSocketCount    = $computerInfo.NumberOfProcessors
-                ComputerCPUCoreCount      = $computerInfo.NumberOfLogicalProcessors
-                OSVersion                 = $osInfo.Version
-                OSBuildNumber             = $osInfo.BuildNumber
-                OSServicePackMajorVersion = $osInfo.ServicePackMajorVersion
-                OSServicePackMinorVersion = $osInfo.ServicePackMinorVersion
-                OSSystemDrive             = $osInfo.SystemDrive
-                'DiskFreeSpace(GB)'       = $freeSpaceGB
-            }
-        }
+                    if ($Protocol -eq 'Wsman') { $newProtocol = 'Dcom'}
+                    else { $newProtocol = 'Wsman'}
+
+                    Write-Verbose "Trying again with $newProtocol"
+
+                    $paramsFallbackRun = @{
+                        ComputerName = $computer
+                        Protocol = $newProtocol
+                        ProtocolFallback = $false
+                    }
+
+                    if ($PSBoundParameters.ContainsKey('LogFailuresToPath')) {
+                        
+                        $paramsFallbackRun.LogFailuresToPath = $LogFailuresToPath
+                    }
+
+                    Get-TMMachineInfo @paramsFallbackRun
+                }
+
+                if (-not $ProtocolFallback -and $PSBoundParameters.ContainsKey('LogFailuresToPath')) {
+
+                    Write-Verbose "Logging to $LogFailuresToPath"
+
+                    $computer | Out-File $LogFailuresToPath -Append
+                }
+            } # try/catch
+        } # foreach ($computer in $ComputerName)
     } # process
 
     end { <# no content #> } # end
 }
 
 function Set-TMServiceLogon {
+
+<#
+    .SYNOPSIS
+        Sets service login name and password.
+
+    .DESCRIPTION
+        This command uses either CIM (default) or WMI to set the service password, and optionally the
+        logon user name, for a service, which can be running on one or more remote machines. You must
+        run this command as a user who has permission to perform this task, remotely, on the computers
+        involved.
+        
+    .PARAMETER ServiceName
+        The name of the service. Query the Win32_Service class to verify that you know the correct
+        name.
+
+    .PARAMETER ComputerName
+        One or more computer names. Using IP addresses will fail with CIM; they will work with WMI.
+        CIM is always attempted first.
+
+    .PARAMETER NewPassword
+        A plain-text string of the new password.
+
+    .PARAMETER NewUser
+        Optional; the new logon user name, in DOMAIN\USER format.
+
+    .PARAMETER ErrorLogFilePath
+        If provided, this is a path and filename of a text file where failed computer names will be
+        logged.
+
+    .PARAMETER Credential
+        A PS credential to specify if connecting to remote machines with a different user account.
+
+    .INPUTS
+        System.String
+        You can pipe a string that contains a computer name to this cmdlet.
+
+    .OUTPUTS
+        System.Management.Automation.PSCustomObject
+        The cmdlet outputs a custom PSObject for reporting results.
+
+    .EXAMPLE
+        PS> Set-TMServiceLogon -ServiceName 'BITS' -ComputerName ONE,TWO,THREE -NewPassword 'abc123'
+        This example will update the service authentication password for the specified service on
+        three machines when multiple computer names are specified directly in the ComputerName
+        parameter.
+
+    .EXAMPLE
+        PS> ONE,TWO,THREE | Set-TMServiceLogon -ServiceName 'BITS' -NewPassword 'abc123'
+        This example will update the service authentication password on three machines when multiple
+        computer names are passed through the pipeline to Set-TMServiceLogon.
+
+    .EXAMPLE
+        PS> Set-TMServiceLogon -ServiceName 'BITS' -ComputerName computer1 -NewPassword 'abc123' `
+        PS>                    -NewUser 'DOMAIN\username'
+        This example will update the service authentication username and password for the specified
+        service on specified computers.
+#>
 
     [CmdletBinding(SupportsShouldProcess)]
     param (
@@ -179,10 +277,12 @@ function Set-TMServiceLogon {
     begin { 
 
         # initialize CimSession params
-        $sessionOption = New-CimSessionOption -Protocol 'Wsman'
+        $protocol = 'Wsman'
+        $sessionOption = New-CimSessionOption -Protocol $protocol
         $paramsNewCimSession = @{
             SessionOption = $sessionOption
             Verbose       = $false
+            ErrorAction = 'Stop'
         }
         if ($PSBoundParameters.ContainsKey('Credential')) { $paramsNewCimSession.Credential = $Credential }
 
@@ -203,37 +303,65 @@ function Set-TMServiceLogon {
 
         foreach ($computer in $ComputerName) {
 
-            Write-Verbose "Connect to $computer on WS-MAN"
+            Do {
 
-            # create Cim session, add CimSession to Invoke-CimMethod params
-            $paramsNewCimSession.ComputerName = $computer
-            $cimSession = New-CimSession @paramsNewCimSession
-            $paramsInvokeCimMethod.CimSession = $cimSession
+                try {
 
-            Write-Verbose "Setting $serviceName on $computer"
+                    if ($PSCmdlet.ShouldProcess($computer)) {
 
-            if ($PSCmdlet.ShouldProcess($computer)) {
+                        Write-Verbose "Connect to $computer on $protocol"
 
-                $result = Invoke-CimMethod @paramsInvokeCimMethod | Select-Object -Property 'ReturnValue'
+                        # create Cim session, add CimSession to Invoke-CimMethod params
+                        $paramsNewCimSession.ComputerName = $computer
 
-                $status = switch ($result.ReturnValue) {
-                    0 { 'Success' }
-                    22 { 'Invalid Account' }
-                    default { "Failed: $($result.ReturnValue)" }
+                        $cimSession = New-CimSession @paramsNewCimSession
+                        $paramsInvokeCimMethod.CimSession = $cimSession
+
+                        Write-Verbose "Setting $serviceName on $computer"
+                        
+                        $result = Invoke-CimMethod @paramsInvokeCimMethod | Select-Object -Property 'ReturnValue'
+
+                        $status = switch ($result.ReturnValue) {
+                            0 { 'Success' }
+                            22 { 'Invalid Account' }
+                            default { "Failed: $($result.ReturnValue)" }
+                        }
+
+                        Write-Verbose "Closing connection to $computer"
+
+                        # remove Cim session
+                        $cimSession | Remove-CimSession
+                    }
+                    else { $status = 'WhatIf: Skipped' }
+
+                    # output result
+                    [PSCustomObject]@{
+                        ComputerName = $computer
+                        Status       = $status
+                    }
+
+                    $protocol = 'Stop'
                 }
-            }
-            else { $status = 'WhatIf: Skipped' }
+                catch {
 
-            Write-Verbose "Closing connection to $computer"
+                    switch ($protocol) {
+                        'Wsman' {
+                            $protocol = 'Dcom'
 
-            # remove Cim session
-            $cimSession | Remove-CimSession -WhatIf:$false
+                            Write-Warning "$computer failed on WS-MAN. Attempting Dcom."
+                        }
+                        'Dcom' {
+                            $protocol = 'Stop'
 
-            # output result
-            [PSCustomObject]@{
-                ComputerName = $computer
-                Status       = $status
-            }
+                            if ($PSBoundParameters.ContainsKey('ErrorLogFilePath')) {
+
+                                Write-Warning "$computer failed; logged to $ErrorLogFilePath"
+                                $computer | Out-File $ErrorLogFilePath -Append
+                            }
+                        }
+                    }
+                }
+            } Until ($protocol -eq 'Stop')
         }
     } # process
 
