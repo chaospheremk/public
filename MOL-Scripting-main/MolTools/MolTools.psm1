@@ -175,7 +175,7 @@ function Set-TMServiceLogon {
                 $status = switch ($result.ReturnValue) {
                     0 { 'Success' }
                     22 { 'Invalid Account' }
-                    Default { "Failed: $($result.ReturnValue)" }
+                    default { "Failed: $($result.ReturnValue)" }
                 }
             }
             else { $status = 'WhatIf: Skipped' }
