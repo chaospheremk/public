@@ -1,5 +1,49 @@
 function Get-TMMachineInfo {
+<#
+    .SYNOPSIS
+        Retrieves specific information about one or more computers using WMI or
+        CIM.
 
+    .DESCRIPTION
+        This command uses either WMI or CIM to retrieve specific information about
+        one or more computers. You must run this command as a user with
+        permission to query CIM or WMI on the machines involved remotely. You can
+        specify a starting protocol (CIM by default), and specify
+        that the other protocol be used on a per-machine basis in the event of a
+        failure
+
+    .PARAMETER ComputerName
+        One or more computer names. When using WMI, this can also be IP addresses.
+        IP addresses may not work for CIM.
+
+    .PARAMETER Credential
+        A PS credential to specify if connecting with a different user account.
+
+    .PARAMETER LogFailuresToPath
+        A path and filename to write failed computer names to. If omitted, no log
+        will be written.
+
+    .PARAMETER Protocol
+        Valid values: Wsman (uses CIM) or Dcom (uses WMI). It will be used for all
+        machines. "Wsman" is the default.
+
+    .PARAMETER ProtocolFallback
+        Specify this to try the other protocol if a machine fails automatically.
+
+    .EXAMPLE
+        Get-TMMachineInfo -ComputerName ONE,TWO,THREE
+        This example will query three machines when multiple computer names are
+        specified directly in the ComputerName parameter.
+
+    .EXAMPLE
+        ONE,TWO,THREE | Get-TMMachineInfo
+        This example will query three machines when multiple computer names are
+        passed through the pipeline to Get-TMMachineInfo.
+
+    .EXAMPLE
+        Get-ADComputer -Filter * | Select -ExpandProperty Name | Get-TMMachineInfo
+        This example will attempt to query all machines in AD.
+#>
     [CmdletBinding()]
     param (
 
