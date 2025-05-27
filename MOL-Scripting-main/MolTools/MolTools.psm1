@@ -1,0 +1,176 @@
+function Get-TMMachineInfo {
+
+    [CmdletBinding()]
+    param (
+
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [Alias('CN', 'MachineName', 'Name')]
+        [string[]]
+        $ComputerName,
+
+        [PSCredential]
+        $Credential,
+
+        [string]
+        $LogFailuresToPath,
+
+        [ValidateSet('Wsman', 'Dcom')]
+        [string]
+        $Protocol = 'Wsman',
+
+        [switch]
+        $ProtocolFallback
+    )
+
+    begin {
+
+        $sessionOption = New-CimSessionOption -Protocol $Protocol
+        $paramsNewCimSession = @{ SessionOption = $sessionOption }
+
+        if ($PSBoundParameters.ContainsKey('Credential')) { $paramsNewCimSession.Credential = $Credential }
+
+        $propsCompSys = @(
+            'Name', 'Manufacturer', 'Model', 'TotalPhysicalMemory', 'SystemType',
+            'NumberOfProcessors', 'NumberOfLogicalProcessors'
+        )
+
+        $propsOS = @(
+            'Version', 'BuildNumber', 'ServicePackMajorVersion',
+            'ServicePackMinorVersion', 'SystemDrive'
+        )
+
+        $paramsGetCimCompSys = @{
+            ClassName = 'Win32_ComputerSystem'
+            Property = $propsCompSys
+        }
+
+        $paramsGetCimProc = @{
+            ClassName = 'Win32_Processor'
+            Property = 'AddressWidth'
+        }
+
+        $paramsGetCimOS = @{
+            ClassName = 'Win32_OperatingSystem'
+            Property = $propsOS
+        }
+    } # begin
+
+    process {
+
+        foreach ($computer in $ComputerName) {
+
+            $paramsNewCimSession.ComputerName = $computer
+            $cimSession = New-CimSession @paramsNewCimSession
+
+            $paramsGetCimCompSys.CimSession = $cimSession
+            $computerInfo = Get-CimInstance @paramsGetCimCompSys | Select-Object -Property $propsCompSys
+
+            $totalRamGB = [math]::Round(($computerInfo.TotalPhysicalMemory / 1GB), 2)
+
+            $paramsGetCimProc.CimSession = $cimSession
+            $cpuType = Get-CimInstance @paramsGetCimProc | Select-Object -First 1 -ExpandProperty 'AddressWidth'
+
+            $paramsGetCimOS.CimSession = $cimSession
+            $osInfo = Get-CimInstance @paramsGetCimOS | Select-Object -Property $propsOS
+
+            $paramsGetCimFreeSpace= @{
+                Query = "SELECT FreeSpace FROM Win32_LogicalDisk WHERE DeviceID='$($osInfo.SystemDrive)'"
+                CimSession = $cimSession
+            }
+
+            $freeSpace = Get-CimInstance @paramsGetCimFreeSpace | Select-Object -ExpandProperty 'FreeSpace'
+            $freeSpaceGB = [math]::Round(($freeSpace / 1GB), 2)
+
+            [PSCustomObject] @{
+                ComputerName = $computerInfo.Name
+                ComputerManufacturer = $computerInfo.Manufacturer
+                ComputerModel = $computerInfo.Model
+                'ComputerTotalRAM(GB)' = $totalRamGB
+                ComputerCPUType = $cpuType
+                ComputerCPUSocketCount = $computerInfo.NumberOfProcessors
+                ComputerCPUCoreCount = $computerInfo.NumberOfLogicalProcessors
+                OSVersion = $osInfo.Version
+                OSBuildNumber = $osInfo.BuildNumber
+                OSServicePackMajorVersion = $osInfo.ServicePackMajorVersion
+                OSServicePackMinorVersion = $osInfo.ServicePackMinorVersion
+                OSSystemDrive = $osInfo.SystemDrive
+                'DiskFreeSpace(GB)' = $freeSpaceGB
+            }
+
+            $cimSession | Remove-CimSession
+        }
+    } # process
+
+    end { <# no content #> } # end
+}
+
+function Set-TMServiceLogon {
+
+    [CmdletBinding(SupportsShouldProcess)]
+    param (
+
+        [Parameter(Mandatory, ValueFromPipelineByPropertyName)]
+        [string]
+        $ServiceName,
+
+        [Parameter(Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
+        [string[]]
+        $ComputerName,
+
+        [Parameter(Mandatory, ValueFromPipelineByPropertyName)]
+        [string]
+        $NewPassword,
+
+        [Parameter(ValueFromPipelineByPropertyName)]
+        [string]
+        $NewUser,
+
+        [string]
+        $ErrorLogFilePath,
+
+        [PSCredential]
+        $Credential
+    )
+
+    begin { 
+
+        # initialize CimSession params
+        $sessionOption = New-CimSessionOption -Protocol 'Wsman'
+        $paramsNewCimSession = @{ SessionOption = $sessionOption }
+        if ($PSBoundParameters.ContainsKey('Credential')) { $paramsNewCimSession.Credential = $Credential }
+
+        # initialize Change method arguments
+        $arguments = @{ 'StartPassword' = $NewPassword }
+        if ($PSBoundParameters.ContainsKey('NewUser')) { $arguments.'StartName' = $NewUser }
+
+        # initialize Invoke-CimMethod params
+        $paramsInvokeCimMethod = @{
+                
+            Query = "SELECT * FROM Win32_Service WHERE Name='$ServiceName'"
+            MethodName = 'Change'
+            Arguments = $arguments
+        }
+    } # begin
+
+    process {
+
+        foreach ($computer in $ComputerName) {
+
+            # create Cim session, add CimSession to Invoke-CimMethod params, format return values
+            $paramsNewCimSession.ComputerName = $computer
+            $cimSession = New-CimSession @paramsNewCimSession
+            $paramsInvokeCimMethod.CimSession = $cimSession
+            $propsSelectObject = @(
+                @{ Name = 'ComputerName'; Expression = {$computer} },
+                @{ Name = 'Result'; Expression = {$_.ReturnValue} }
+            )
+
+            Invoke-CimMethod @paramsInvokeCimMethod | Select-Object -Property $propsSelectObject
+
+            # remove Cim session
+            $cimSession | Remove-CimSession -WhatIf:$false
+        }
+    } # process
+
+    end { <# no content #> } # end
+} # function Set-TMServiceLogon
