@@ -21,12 +21,38 @@ function Copy-FileFromShare {
         $Destination
     )
 
-    begin { <# no content #> } # begin
+    begin {
+        # make sure source file exists
+        $filePath = "$SharePath\$FileName"
+
+        Write-Verbose -Message "Checking for existence of file '$filePath'."
+
+        if (-not (Test-Path -Path $filePath)) {
+            throw "Source file $filePath does not exist."
+        }
+    } # begin
 
     process {
 
-        $verboseMessage = "Copying file [$FileName] from share path [$SharePath] to destination [$Destination]"
+        # make sure destination folder exists
+        Write-Verbose -Message "Checking for existence of path '$Destination'."
 
+        if (-not (Test-Path -Path $Destination)) {
+
+            Write-Verbose -Message "Path '$Destination' does not exist."
+            Write-Verbose -Message "Creating folder path '$Destination'."
+
+            try {
+
+                $null = New-Item -Path 'C:\' -Name 'temp' -ItemType Directory -Force
+
+                Write-Verbose -Message "Folder path '$destination' was created successfully."
+            }
+            catch { $_ }
+        }
+        else { Write-Verbose -Message "Path '$Destination' already exists."}
+
+        $verboseMessage = "Copying file '$FileName' from share path '$SharePath' to destination '$Destination'"
         Write-Verbose -Message $verboseMessage
 
         try { Copy-Item -Path "$SharePath\$FileName" -Destination $Destination -ErrorAction 'Stop' }
@@ -142,178 +168,130 @@ function Set-EntraConnectHealthRegistry {
 
     begin {
 
-        $envProp = 'EnvironmentName'
-        $envVal = 'AzureUSGovernment'
-        $updSvcHostProp = 'UpdaterServiceHost'
-        $updSvcHostVal = 'autoupdate.msappproxy.us'
-        $hlthSvcHostProp = 'HealthServiceHost'
-        $hlthSvcHostVal = 'frontend.aadconnecthealth.microsoftazure.us'
+        # Registry configuration for Azure US Government
+        $registryConfig = @{
+            EnvironmentName = 'AzureUSGovernment'
+            UpdaterServiceHost = 'autoupdate.msappproxy.us'
+            HealthServiceHost = 'frontend.aadconnecthealth.microsoftazure.us'
+        }
+
+        # Define registry operations using parameter values
+        $registryOperations = @(
+            @{
+                Path = $UpdaterRegPath
+                Property = 'EnvironmentName'
+                Value = $registryConfig.EnvironmentName
+                Description = 'Azure AD Connect Agent Updater environment'
+            },
+            @{
+                Path = $UpdaterRegPath
+                Property = 'UpdaterServiceHost'
+                Value = $registryConfig.UpdaterServiceHost
+                Description = 'Azure AD Connect Agent Updater service host'
+            },
+            @{
+                Path = $HealthRegPath
+                Property = 'EnvironmentName'
+                Value = $registryConfig.EnvironmentName
+                Description = 'Entra Connect Health Agent environment'
+            },
+            @{
+                Path = $HealthRegPath
+                Property = 'HealthServiceHost'
+                Value = $registryConfig.HealthServiceHost
+                Description = 'Entra Connect Health Agent service host'
+            }
+        )
     } # begin
 
     process {
 
-        try {
+        foreach ($operation in $registryOperations) {
 
-            Write-Verbose -Message "Checking Azure AD Connect Agent Updater registry settings."
+            Write-Verbose -Message "Checking registry setting: $($operation.Description)"
 
-            $paramsGetUpdaterEnvProperty = @{
-                Path = $UpdaterRegPath
-                Name = $envProp
-                ErrorAction = 'SilentlyContinue'
+            # Get current value (handle non-existent paths gracefully)
+            $currentValue = $null
+            $pathExists = Test-Path -Path $operation.Path
+
+            if ($pathExists) {
+
+                $getParams = @{
+                    Path = $operation.Path
+                    Name = $operation.Property
+                    ErrorAction = 'SilentlyContinue'
+                }
+
+                $currentValue = (Get-ItemProperty @getParams).($operation.Property)
             }
 
-            $updaterEnvName = (Get-ItemProperty @paramsGetUpdaterEnvProperty).$envProp
+            # Check if update is needed
+            if ($currentValue -ne $operation.Value) {
 
-            if ($updaterEnvName -ne $envVal) {
+                $whatIfMessage = "Set registry value '$($operation.Property)' to '$($operation.Value)'" +
+                                 " at path '$($operation.Path)'"
                 
-                Write-Verbose -Message "Property [$envProp] not set at path [$UpdaterRegPath]."
+                if (-not $pathExists) {
 
-                $paramsSetUpdaterEnvProperty = @{
-                    Path = $UpdaterRegPath
-                    Name = $envProp
-                    Value = $envVal
-                    ErrorAction = 'Stop'
+                    Write-Verbose -Message "Registry path '$($operation.Path)' does not exist"
+                    $whatIfMessage = "Create registry path '$($operation.Path)' and set '$($operation.Property)'" +
+                                     " to '$($operation.Value)'"
+                }
+                else {
+
+                    Write-Verbose -Message "Property '$($operation.Property)' current value: '$currentValue'," +
+                                           " required value: '$($operation.Value)'"
                 }
 
-                Write-Verbose -Message "Setting property [$envProp] to value [$envVal]."
+                if ($PSCmdlet.ShouldProcess($operation.Path, $whatIfMessage)) {
 
-                try {
+                    try {
+                        # Ensure registry path exists
+                        if (-not $pathExists) {
+                            Write-Verbose "Creating registry path: $($operation.Path)"
+                            $null = New-Item -Path $operation.Path -Force -ErrorAction 'Stop'
+                        }
 
-                    Set-ItemProperty @paramsSetUpdaterEnvProperty
+                        # Set the registry value
+                        $setParams = @{
+                            Path = $operation.Path
+                            Name = $operation.Property
+                            Value = $operation.Value
+                            ErrorAction = 'Stop'
+                        }
+                        
+                        Set-ItemProperty @setParams
 
-                    Write-Verbose -Message "Set property [$envProp] to value [$envVal] successfully."
+                        Write-Verbose -Message "Successfully set '$($operation.Property)' to" +
+                                               " '$($operation.Value)' at '$($operation.Path)'"
+                    }
+                    catch {
+
+                        Write-Error -Message "Failed to set registry value '$($operation.Property)' at" +
+                                             " '$($operation.Path)': $($_.Exception.Message)"
+                        continue
+                    }
                 }
-                catch { $_ }
             }
-
-            $paramsGetUpdaterSvcProperty = @{
-                Path = $UpdaterRegPath
-                Name = $updSvcHostProp
-                ErrorAction = 'SilentlyContinue'
-            }
-
-            $updaterSvcHost = (Get-ItemProperty @paramsGetUpdaterSvcProperty).$updSvcHostProp
-
-            if ($updaterSvcHost -ne $updSvcHostVal) {
+            else {
                 
-                Write-Verbose -Message "Property [$updSvcHostProp] not set at path [$UpdaterRegPath]."
-
-                $paramsSetUpdaterSvcProperty = @{
-                    Path = $UpdaterRegPath
-                    Name = $updSvcHostProp
-                    Value = $updSvcHostVal
-                    ErrorAction = 'Stop'
-                }
-
-                Write-Verbose -Message "Setting property [$updSvcHostProp] to value [$updSvcHostVal]."
-
-                try {
-
-                    Set-ItemProperty @paramsSetUpdaterSvcProperty
-                    Write-Verbose -Message "Set property [$updSvcHostProp] to value [$updSvcHostVal] successfully."
-                }
-                catch { $_ }
-            }
-
-            Write-Verbose -Message "Checking Entra Connect Agent Updater registry settings."
-
-            $paramsGetHealthEnvProperty = @{
-                Path = $HealthRegPath
-                Name = $envProp
-                ErrorAction = 'SilentlyContinue'
-            }
-
-            $healthEnvName = (Get-ItemProperty @paramsGetHealthEnvProperty).$envProp
-
-            if ($healthEnvName -ne $envVal) {
-                
-                Write-Verbose -Message "Property [$envProp] not set at path [$HealthRegPath]."
-
-                $paramsSetHealthEnvProperty = @{
-                    Path = $HealthRegPath
-                    Name = $envProp
-                    Value = $envVal
-                    ErrorAction = 'Stop'
-                }
-
-                Write-Verbose -Message "Setting property [$envProp] to value [$envVal]."
-
-                try {
-
-                    Set-ItemProperty @paramsSetHealthEnvProperty
-
-                    Write-Verbose -Message "Set property [$envProp] to value [$envVal] successfully."
-                }
-                catch { $_ }
-            }
-
-            $paramsGetHealthSvcProperty = @{
-                Path = $HealthRegPath
-                Name = $hlthSvcHostProp
-                ErrorAction = 'SilentlyContinue'
-            }
-
-            $healthSvcHost = (Get-ItemProperty @paramsGetHealthSvcProperty).$hlthSvcHostProp
-
-            if ($healthSvcHost -ne $hlthSvcHostVal) {
-
-                Write-Verbose -Message "Property [$hlthSvcHostProp] not set at path [$HealthRegPath]."
-
-                $paramsSetHealthSvcProperty = @{
-                    Path = $HealthRegPath
-                    Name = $hlthSvcHostProp
-                    Value = $hlthSvcHostVal
-                    ErrorAction = 'Stop'
-                }
-
-                Write-Verbose -Message "Setting property [$hlthSvcHostProp] to value [$hlthSvcHostVal]."
-
-                try {
-
-                    Set-ItemProperty @paramsSetHealthSvcProperty
-
-                    Write-Verbose -Message "Set property [$hlthSvcHostProp] to value [$hlthSvcHostVal] successfully."
-                }
-                catch { $_ }
+                Write-Verbose -Message "Registry setting '$($operation.Property)' already configured correctly"
             }
         }
-        catch { $_ }
     } # process
 
     end { <# no content #> } # end
 }
 
-# make sure C:\temp folder exists
-Write-Verbose -Message "Checking for existence of path [$destination]."
-
-$fileName = 'MicrosoftEntraConnectHealthAgentSetup.exe'
-$sharePath = ''
-$destination = 'C:\temp'
-
-if (-not (Test-Path -Path $destination)) {
-
-    Write-Verbose -Message "Path [$destination] does not exist."
-    Write-Verbose -Message "Creating folder path [$destination]."
-
-    try {
-
-        $null = New-Item -Path 'C:\' -Name 'temp' -ItemType Directory -Force
-
-        Write-Verbose -Message "Folder path [$destination] was created successfully."
-    }
-    catch { $_ }
-}
-else { Write-Verbose -Message "Path [$destination] already exists."}
-
 ## download installer to C:\temp folder
 $installerPath = "$destination\$fileName"
 
-Write-Verbose -Message "Checking for existence of file [$installerPath]."
+Write-Verbose -Message "Checking for existence of file '$installerPath'."
 
 if (-not (Test-Path -Path "$installerPath")) {
 
-    Write-Verbose -Message "File [$installerPath] does not exist."
-    Write-Verbose -Message "Downloading file [$fileName] from share [$sharePath]."
+    Write-Verbose -Message "File '$installerPath' does not exist."
+    Write-Verbose -Message "Downloading file '$fileName' from share '$sharePath'."
 
     $paramsCopyFile = @{
         FileName = $fileName
@@ -326,14 +304,14 @@ if (-not (Test-Path -Path "$installerPath")) {
 
         Copy-FileFromShare @paramsCopyFile
 
-        Write-Verbose -Message "File [$fileName] was downloaded successfully."
+        Write-Verbose -Message "File '$fileName' was downloaded successfully."
     }
     catch { $_ }
 }
 
 ###########################################################################################################################
 ## install silently with no registration
-Write-Verbose -Message "Running installer [$fileName]."
+Write-Verbose -Message "Running installer '$fileName'."
 
 $exeArgs = @( '/quiet', 'AddsMonitoringEnabled=1', 'SkipRegistration=1')
 
@@ -341,7 +319,7 @@ try {
 
     $null = Invoke-CommandLine -ExePath $installerPath -ExeArgs $exeArgs -ErrorAction 'Stop'
 
-    Write-Verbose -Message "Installer [$fileName] ran successfully."
+    Write-Verbose -Message "Installer '$fileName' ran successfully."
 }
 catch { $_ }
 
