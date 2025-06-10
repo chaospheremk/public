@@ -1,9 +1,3 @@
-# install Entra Connect Health
-
-
-##################################
-# FUNCTIONS
-
 function Copy-FileFromShare {
 
     [CmdletBinding(SupportsShouldProcess)]
@@ -18,7 +12,10 @@ function Copy-FileFromShare {
 
         [Parameter(Mandatory)]
         [string]
-        $Destination
+        $Destination,
+
+        [PSCredential]
+        $Credential
     )
 
     begin {
@@ -27,8 +24,32 @@ function Copy-FileFromShare {
 
         Write-Verbose -Message "Checking for existence of file '$filePath'."
 
-        if (-not (Test-Path -Path $filePath)) {
-            throw "Source file $filePath does not exist."
+        $psDriveName = 'FileDrive'
+        $testDriveFilePath = "$psDriveName`:$fileName"
+
+        $paramsNewPSDrive = @{
+            Name = $psDriveName
+            PSProvider = 'FileSystem'
+            Root = $SharePath
+            ErrorAction = 'Stop'
+        }
+
+        if ($Credential) { $paramsNewPSDrive.Add('Credential', $Credential) }
+
+        try {
+
+            Write-Verbose -Message "Creating PSDrive '$psDriveName'."
+
+            $null = New-PSDrive @paramsNewPSDrive
+        }
+        catch { $_ }
+
+        Write-Verbose -Message "PSDrive '$psDriveName' was created successfully."
+
+        if ($PSCmdlet.ShouldProcess($testDriveFilePath, 'Check path')) {
+
+            if (Test-Path -Path $testDriveFilePath) { Write-Verbose -Message "File '$filePath' exists." }
+            else { throw "Source file $filePath does not exist." }
         }
     } # begin
 
@@ -42,32 +63,56 @@ function Copy-FileFromShare {
             Write-Verbose -Message "Path '$Destination' does not exist."
             Write-Verbose -Message "Creating folder path '$Destination'."
 
-            try {
-
-                $null = New-Item -Path 'C:\' -Name 'temp' -ItemType Directory -Force
-
-                Write-Verbose -Message "Folder path '$destination' was created successfully."
-            }
+            try { $null = New-Item -Path 'C:\' -Name 'temp' -ItemType Directory -Force }
             catch { $_ }
+
+            Write-Verbose -Message "Folder path '$destination' was created successfully."
         }
         else { Write-Verbose -Message "Path '$Destination' already exists."}
+        
+        Write-Verbose -Message ("Copying file '$FileName' from share path '$SharePath' to destination" +
+                                " '$Destination'")
 
-        $verboseMessage = "Copying file '$FileName' from share path '$SharePath' to destination '$Destination'"
-        Write-Verbose -Message $verboseMessage
+        $paramsCopyItem = @{
+            Path = $testDriveFilePath
+            Destination = $Destination
+            ErrorAction = 'Stop'
+        }
 
-        try { Copy-Item -Path "$SharePath\$FileName" -Destination $Destination -ErrorAction 'Stop' }
+        try {
+            
+            if ($PSCmdlet.ShouldProcess($testDriveFilePath, 'Copy file')) {
+                
+                Copy-Item @paramsCopyItem
+
+                Write-Verbose -Message ("File '$FileName' from share path '$SharePath' was copied to destination" +
+                                        " '$Destination' successfully.")
+            }
+        }
         catch { $_ }
     } # process
 
-    end { <# no content #> } # end
+    end { 
+        
+        Write-Verbose -Message "Removing PSDrive '$psDriveName'."
+
+        if ($PSCmdlet.ShouldProcess($psDriveName, 'Remove PSDrive')) {
+
+            try { Remove-PSDrive -Name $psDriveName -ErrorAction 'Stop' }
+            catch { $_ }
+
+            Write-Verbose -Message "PSDrive '$psDriveName' was removed successfully."
+        }
+    } # end
 }
 
 function Invoke-CommandLine {
 
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
 
         [Parameter(Mandatory)]
+        [ValidateScript({ Test-Path -Path $_ })]
         [string]
         $ExePath,
 
@@ -76,24 +121,34 @@ function Invoke-CommandLine {
         $ExeArgs
     )
 
+    begin { $command = $ExePath + ' ' + $ExeArgs -join ' ' }
+
     process {
 
-        $output = & $ExePath @ExeArgs 2>&1
+        Write-Verbose -Message "Running command '$command'."
 
-        if ($LASTEXITCODE -ne 0) {
+        if ($PSCmdlet.ShouldProcess($command, 'Run command')) {
 
-            $tempOutput = foreach ($line in $output) {
-                
-                $lineIsEmpty = [string]::IsNullOrWhiteSpace($line)
-                if (-not $lineIsEmpty) { $line }
+            $output = & $ExePath @ExeArgs 2>&1
+
+            if ($LASTEXITCODE -ne 0) {
+
+                $tempOutput = foreach ($line in $output) {
+                    
+                    $lineIsEmpty = [string]::IsNullOrWhiteSpace($line)
+
+                    if (-not $lineIsEmpty) { $line }
+                }
+
+                $formattedOutput = $tempOutput -join "`n"
+
+                throw $formattedOutput
             }
 
-            $formattedOutput = $tempOutput -join "`n"
-
-            throw $formattedOutput
+            $output
         }
 
-        $output
+        Write-Verbose -Message "Command '$command' ran successfully."
     }
 }
 
@@ -153,6 +208,44 @@ function Confirm-EntraConnectHealthAgentInstalled {
     end { <# no content #> } # end
 }
 
+function Install-EntraConnectHealthAgent {
+
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param (
+
+        [ValidateScript({ Test-Path -Path $_ })]
+        [string]
+        $InstallerPath = 'C:\temp\MicrosoftEntraConnectHealthAgentSetup.exe'
+    )
+
+    begin { $exeArgs = @( '/quiet', 'AddsMonitoringEnabled=1', 'SkipRegistration=1') } # begin
+
+    process {
+
+        Write-Verbose -Message 'Installing Entra Connect Health agent.'
+
+        if ($PSCmdlet.ShouldProcess($InstallerPath, 'Install agent')) {
+
+            try {
+
+                $null = Invoke-CommandLine -ExePath $InstallerPath -ExeArgs $exeArgs -ErrorAction 'Stop'
+
+                Start-Sleep -Seconds 15
+
+                if (-not (Confirm-EntraConnectHealthAgentInstalled)) {
+                    
+                    throw "Entra Connect Health agent was not installed successfully."
+                }
+            }
+            catch { $_ }
+        }
+
+        Write-Verbose -Message "Entra Connect Health agent was installed successfully."
+    } # process
+
+    end { <# no content #> } # end
+}
+
 function Set-EntraConnectHealthRegistry {
 
     [CmdletBinding(SupportsShouldProcess)]
@@ -202,9 +295,30 @@ function Set-EntraConnectHealthRegistry {
                 Description = 'Entra Connect Health Agent service host'
             }
         )
+
+        $services = @('AzureADConnectHealthAgent', 'AzureADConnectAgentUpdater')
     } # begin
 
     process {
+
+        Write-Verbose -Message "Stopping Entra Connect Health related services."
+
+        if ($PSCmdlet.ShouldProcess('Services', 'Stop services')) {
+
+            try {
+
+                foreach ($service in $services) {
+
+                    if ((Get-Service -Name $service).Status -eq 'Running') {
+                        
+                        Stop-Service -Name $service -ErrorAction 'Stop'
+                    }
+                }
+            }
+            catch { $_ }
+        }
+
+        Write-Verbose -Message "Stopped running Entra Connect Health related services successfully."
 
         foreach ($operation in $registryOperations) {
 
@@ -228,19 +342,19 @@ function Set-EntraConnectHealthRegistry {
             # Check if update is needed
             if ($currentValue -ne $operation.Value) {
 
-                $whatIfMessage = "Set registry value '$($operation.Property)' to '$($operation.Value)'" +
-                                 " at path '$($operation.Path)'"
+                $whatIfMessage = ("Set registry value '$($operation.Property)' to '$($operation.Value)'" +
+                                  " at path '$($operation.Path)'")
                 
                 if (-not $pathExists) {
 
                     Write-Verbose -Message "Registry path '$($operation.Path)' does not exist"
-                    $whatIfMessage = "Create registry path '$($operation.Path)' and set '$($operation.Property)'" +
-                                     " to '$($operation.Value)'"
+                    $whatIfMessage = ("Create registry path '$($operation.Path)' and set" +
+                                      " '$($operation.Property)' to '$($operation.Value)'")
                 }
                 else {
 
-                    Write-Verbose -Message "Property '$($operation.Property)' current value: '$currentValue'," +
-                                           " required value: '$($operation.Value)'"
+                    Write-Verbose -Message ("Property '$($operation.Property)' current value: '$currentValue'," +
+                                            " required value: '$($operation.Value)'")
                 }
 
                 if ($PSCmdlet.ShouldProcess($operation.Path, $whatIfMessage)) {
@@ -248,11 +362,19 @@ function Set-EntraConnectHealthRegistry {
                     try {
                         # Ensure registry path exists
                         if (-not $pathExists) {
+
                             Write-Verbose "Creating registry path: $($operation.Path)"
+
                             $null = New-Item -Path $operation.Path -Force -ErrorAction 'Stop'
+
+                            Write-Verbose "Created registry path: $($operation.Path)"
                         }
 
                         # Set the registry value
+
+                        Write-Verbose -Message ("Setting '$($operation.Property)' to '$($operation.Value)' at" +
+                                                " '$($operation.Path)'")
+
                         $setParams = @{
                             Path = $operation.Path
                             Name = $operation.Property
@@ -262,13 +384,13 @@ function Set-EntraConnectHealthRegistry {
                         
                         Set-ItemProperty @setParams
 
-                        Write-Verbose -Message "Successfully set '$($operation.Property)' to" +
-                                               " '$($operation.Value)' at '$($operation.Path)'"
+                        Write-Verbose -Message ("Successfully set '$($operation.Property)' to" +
+                                                " '$($operation.Value)' at '$($operation.Path)'")
                     }
                     catch {
 
-                        Write-Error -Message "Failed to set registry value '$($operation.Property)' at" +
-                                             " '$($operation.Path)': $($_.Exception.Message)"
+                        Write-Error -Message ("Failed to set registry value '$($operation.Property)' at" +
+                                              " '$($operation.Path)': $($_.Exception.Message)")
                         continue
                     }
                 }
@@ -283,58 +405,119 @@ function Set-EntraConnectHealthRegistry {
     end { <# no content #> } # end
 }
 
-## download installer to C:\temp folder
-$installerPath = "$destination\$fileName"
+function Register-SNCEntraConnectHealthAgent {
 
-Write-Verbose -Message "Checking for existence of file '$installerPath'."
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param (
 
-if (-not (Test-Path -Path "$installerPath")) {
+        [Parameter(Mandatory = $true)]
+        [string]
+        $UserName,
 
-    Write-Verbose -Message "File '$installerPath' does not exist."
-    Write-Verbose -Message "Downloading file '$fileName' from share '$sharePath'."
+        [Parameter(Mandatory = $true)]
+        [string]
+        $TenantId,
 
-    $paramsCopyFile = @{
-        FileName = $fileName
-        SharePath = $sharePath
-        Destination = $destination
-        ErrorAction = 'Stop'
-    }
+        [Parameter(Mandatory = $true)]
+        [string]
+        $ClientId,
 
-    try {
+        [SecureString]
+        $ClientSecret = (Read-Host -AsSecureString -Prompt "Please enter the Client Secret")
+    )
 
-        Copy-FileFromShare @paramsCopyFile
+    begin {
 
-        Write-Verbose -Message "File '$fileName' was downloaded successfully."
-    }
-    catch { $_ }
+        Write-Verbose -Message "Importing AdHealthConfiguration module."
+
+        try {
+
+            $moduleName = 'C:\Program Files\Microsoft Azure AD Connect Health Agent\Modules\AdHealthConfiguration'
+
+            Import-Module -Name $moduleName -ErrorAction 'Stop'
+        }
+        catch { $_ }
+
+        Write-Verbose -Message "AdHealthConfiguration module was imported successfully."
+
+        $uri = "https://login.microsoftonline.us/$TenantId/oauth2/v2.0/token"
+
+        $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($ClientSecret)
+
+        $body = [Ordered]@{
+            client_id = $ClientId
+            client_secret = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+            grant_type = 'client_credentials'
+            scope = "https://management.usgovcloudapi.net/.default"
+        }
+
+        $paramsInvokeRestMethod = @{
+            Method = 'Post'
+            Uri = $uri
+            Body = $body
+            ContentType = 'application/x-www-form-urlencoded'
+            ErrorAction = 'Stop'
+        }
+    } # begin
+
+    process {
+
+        try {
+
+            Write-Verbose -Message "Generating AadToken"
+
+            if ($PSCmdlet.ShouldProcess('Entra ID', 'Get access token')) {
+
+                $paramsConvertToSecureString = @{
+                    String = (Invoke-RestMethod @paramsInvokeRestMethod).access_token
+                    AsPlainText = $true
+                    Force = $true
+                }
+            }
+
+            Write-Verbose -Message "AadToken was generated successfully."
+
+            Write-Verbose -Message "Registering Entra Connect Health agent."
+
+            if ($PSCmdlet.ShouldProcess('Entra Connect Health agent', 'Register')) {
+
+                $paramsRegisterECHAgent = @{
+                    UserPrincipalName = $userName
+                    AadToken = ConvertTo-SecureString @paramsConvertToSecureString
+                }
+
+                try {
+
+                    Register-MicrosoftEntraConnectHealthAgent @paramsRegisterECHAgent
+
+                    $loopCount = 0
+
+                    do {
+
+                        Start-Sleep -Seconds 1
+
+                        $status = (Get-Service -Name 'AzureADConnectHealthAgent').Status
+
+                        $loopCount++
+                    } while (($status -ne 'Running') -or ($loopCount -gt 5))
+                }
+                catch { $_ }
+            }
+
+            Write-Verbose -Message 'Entra Connect Health agent was registered successfully.'
+
+            Write-Verbose -Message 'Starting AzureADConnectAgentUpdater service.'
+
+            if ($PSCmdlet.ShouldProcess('AzureADConnectAgentUpdater', 'Start service')) {
+
+                try { Start-Service -Name 'AzureADConnectAgentUpdater' -ErrorAction 'Stop' }
+                catch { $_ }
+            }
+
+            Write-Verbose -Message 'AzureADConnectAgentUpdater was started successfully.'
+        }
+        catch { $_ }
+    } # process
+
+    end { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) } # end
 }
-
-###########################################################################################################################
-## install silently with no registration
-Write-Verbose -Message "Running installer '$fileName'."
-
-$exeArgs = @( '/quiet', 'AddsMonitoringEnabled=1', 'SkipRegistration=1')
-
-try {
-
-    $null = Invoke-CommandLine -ExePath $installerPath -ExeArgs $exeArgs -ErrorAction 'Stop'
-
-    Write-Verbose -Message "Installer '$fileName' ran successfully."
-}
-catch { $_ }
-
-# verify that Entra Connect Health is installed
-
-$healthAgentInstalled = Confirm-EntraConnectHealthAgentInstalled
-
-## make registry changes
-Write-Verbose -Message "Making required registry changes."
-
-Set-EntraConnectHealthRegistry
-
-
-
-
-
-## create access token
-## run registration command
