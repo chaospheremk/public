@@ -38,6 +38,6 @@ foreach ($DC in $DCs) {
         }
     }
     catch {
-        Write-Warning "Failed to query $DC: $_"
+        Write-Warning "Failed to query $DC`: $_"
     }
 }
