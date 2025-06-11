@@ -405,7 +405,7 @@ function Set-EntraConnectHealthRegistry {
     end { <# no content #> } # end
 }
 
-function Register-SNCEntraConnectHealthAgent {
+function Register-EntraConnectHealthAgent {
 
     [CmdletBinding(SupportsShouldProcess = $true)]
     param (
