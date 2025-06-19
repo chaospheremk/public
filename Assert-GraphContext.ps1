@@ -1,4 +1,4 @@
-function Assert-GraphAuthentication {
+function Test-GraphAuthentication {
     <#
     .SYNOPSIS
     Validates that Microsoft Graph is authenticated.
@@ -8,7 +8,7 @@ function Assert-GraphAuthentication {
     it throws a terminating error with structured metadata to ensure proper error handling.
 
     .EXAMPLE
-    Assert-GraphAuthentication
+    Test-GraphAuthentication
 
     Use at the beginning of an advanced function to ensure the user is authenticated to Microsoft Graph.
 
