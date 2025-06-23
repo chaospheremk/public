@@ -2,7 +2,7 @@ function Write-Log {
 
     [CmdletBinding()]
     param (
-        [Parameter(Mandatory, ParameterSetName = 'Default', Position = 0)]
+        [Parameter(Mandatory = $true, ParameterSetName = 'Default', Position = 0)]
         [Parameter(ParameterSetName = 'Error', Position = 0)]
         [string]$Message,
 
@@ -32,7 +32,7 @@ function Write-Log {
         })]
         [PSObject]$Metadata,
 
-        [Parameter(Mandatory, ParameterSetName = 'Error')]
+        [Parameter(Mandatory = $true, ParameterSetName = 'Error')]
         [System.Management.Automation.ErrorRecord]$ErrorObject
     )
 
