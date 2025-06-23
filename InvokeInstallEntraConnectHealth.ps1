@@ -521,3 +521,54 @@ function Register-EntraConnectHealthAgent {
 
     end { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) } # end
 }
+
+########
+
+function Invoke-CommandLine {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateScript({ Test-Path -Path $_ })]
+        [string]
+        $ExePath,
+
+        [Parameter(Mandatory)]
+        [System.Array]
+        $ExeArgs,
+
+        [Parameter()]
+        [int[]]
+        $SuccessExitCodes = @(0),
+
+        [Parameter()]
+        [switch]
+        $IgnoreExitCode
+    )
+
+    begin { 
+        $command = $ExePath + ' ' + $ExeArgs -join ' ' 
+    }
+
+    process {
+        Write-Verbose -Message "Running command '$command'."
+
+        if ($PSCmdlet.ShouldProcess($command, 'Run command')) {
+            $output = & $ExePath @ExeArgs 2>&1
+
+            if (-not $IgnoreExitCode -and $LASTEXITCODE -notin $SuccessExitCodes) {
+                $tempOutput = foreach ($line in $output) {
+                    $lineIsEmpty = [string]::IsNullOrWhiteSpace($line)
+                    if (-not $lineIsEmpty) { $line }
+                }
+
+                $formattedOutput = $tempOutput -join "`n"
+                
+                throw "Command failed with exit code $LASTEXITCODE. Output: $formattedOutput"
+            }
+
+            $output
+        }
+
+        Write-Verbose -Message "Command '$command' ran successfully."
+    }
+}
