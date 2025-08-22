@@ -1,6 +1,6 @@
 function Get-TMMachineInfo {
 
-<#
+    <#
     .SYNOPSIS
         Retrieves specific information about one or more computers using WMI or CIM.
 
@@ -79,7 +79,7 @@ function Get-TMMachineInfo {
         $paramsNewCimSession = @{
             SessionOption = $sessionOption
             Verbose       = $false
-            ErrorAction = 'Stop'
+            ErrorAction   = 'Stop'
         }
 
         if ($PSBoundParameters.ContainsKey('Credential')) { $paramsNewCimSession.Credential = $Credential }
@@ -138,17 +138,17 @@ function Get-TMMachineInfo {
                 $cimSession | Remove-CimSession
 
                 [PSCustomObject] @{
-                    ComputerName              = $computerInfo.Name
-                    OSVersion                 = $osInfo.Version
-                    SPVersion = $osInfo.ServicePackMajorVersion
-                    OSBuild             = $osInfo.BuildNumber
+                    ComputerName      = $computerInfo.Name
+                    OSVersion         = $osInfo.Version
+                    SPVersion         = $osInfo.ServicePackMajorVersion
+                    OSBuild           = $osInfo.BuildNumber
                     Manufacturer      = $computerInfo.Manufacturer
                     Model             = $computerInfo.Model
-                    Procs    = $computerInfo.NumberOfProcessors
-                    Cores      = $computerInfo.NumberOfLogicalProcessors
-                    RAM    = [math]::Round(($computerInfo.TotalPhysicalMemory / 1GB), 2)
-                    Arch           = $procArch
-                    SysDriveFreeSpace       = [math]::Round(($freeSpace / 1GB), 2)
+                    Procs             = $computerInfo.NumberOfProcessors
+                    Cores             = $computerInfo.NumberOfLogicalProcessors
+                    RAM               = [math]::Round(($computerInfo.TotalPhysicalMemory / 1GB), 2)
+                    Arch              = $procArch
+                    SysDriveFreeSpace = [math]::Round(($freeSpace / 1GB), 2)
                 }
             }
             catch {
@@ -157,14 +157,14 @@ function Get-TMMachineInfo {
 
                 if ($ProtocolFallback) {
 
-                    if ($Protocol -eq 'Wsman') { $newProtocol = 'Dcom'}
-                    else { $newProtocol = 'Wsman'}
+                    if ($Protocol -eq 'Wsman') { $newProtocol = 'Dcom' }
+                    else { $newProtocol = 'Wsman' }
 
                     Write-Verbose "Trying again with $newProtocol"
 
                     $paramsFallbackRun = @{
-                        ComputerName = $computer
-                        Protocol = $newProtocol
+                        ComputerName     = $computer
+                        Protocol         = $newProtocol
                         ProtocolFallback = $false
                     }
 
@@ -191,7 +191,7 @@ function Get-TMMachineInfo {
 
 function Set-TMServiceLogon {
 
-<#
+    <#
     .SYNOPSIS
         Sets service login name and password.
 
@@ -282,7 +282,7 @@ function Set-TMServiceLogon {
         $paramsNewCimSession = @{
             SessionOption = $sessionOption
             Verbose       = $false
-            ErrorAction = 'Stop'
+            ErrorAction   = 'Stop'
         }
         if ($PSBoundParameters.ContainsKey('Credential')) { $paramsNewCimSession.Credential = $Credential }
 
