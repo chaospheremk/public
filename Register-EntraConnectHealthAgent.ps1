@@ -50,7 +50,7 @@ function Register-EntraConnectHealthAgent {
 
         $body = [Ordered]@{
             client_id = $ClientId
-            client_secret = "$clientSecretPlain"
+            client_secret = $clientSecretPlain
             grant_type = 'client_credentials'
             scope = "https://management.usgovcloudapi.net/.default"
         }
