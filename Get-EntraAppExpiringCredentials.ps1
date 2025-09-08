@@ -278,16 +278,3 @@ function Get-EntraAppExpiringCredentials {
         }
     }
 }
-
-$appId = '6aaf813d-fe9f-4bd7-8177-1b567dd44597', 'd594948e-8432-4981-a8de-93cabbac34e2', '73cd4e68-b823-4fde-b76f-56643cbd35d1'
-
-$paramsGetEntraAppExpCreds = @{
-    DaysToExpiry = 30
-    IncludeExpired = $true
-    #SecretsOnly = $true
-    #CertsOnly = $true
-    #AppId = $appId
-    Verbose = $true
-}
-
-Get-EntraAppExpiringCredentials @paramsGetEntraAppExpCreds
