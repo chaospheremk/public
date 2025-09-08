@@ -86,6 +86,9 @@ function Get-EntraAppExpiringCredentials {
     )
 
     begin {
+        # Checking for Verbose
+        $isVerbose = $PSBoundParameters.ContainsKey('Verbose')
+
         # Require PowerShell 7.3 or higher
         $requiredVersion = [Version]'7.3.0'
         $currentVersion = $PSVersionTable.PSVersion
@@ -126,7 +129,7 @@ function Get-EntraAppExpiringCredentials {
         # Initialize results collection
         $results = [System.Collections.Generic.List[PSObject]]::new()
 
-        if ($PSBoundParameters.ContainsKey('Verbose')) {
+        if ($isVerbose) {
 
             $includeDateString = if ($IncludeExpired) { 'any date' } else { $today.ToString('yyyy-MM-dd') }
             $verboseMessage = "Checking for credentials expiring between $includeDateString" +
@@ -153,7 +156,7 @@ function Get-EntraAppExpiringCredentials {
                 )
             }
 
-            if ($PSBoundParameters.ContainsKey('Verbose')) {
+            if ($isVerbose) {
 
                 $contextAccount = $context.Account
                 $tenantId = $context.TenantId
