@@ -133,7 +133,7 @@ function Get-EntraAppExpiringCredentials {
 
             $includeDateString = if ($IncludeExpired) { 'any date' } else { $today.ToString('yyyy-MM-dd') }
             $verboseMessage = "Checking for credentials expiring between $includeDateString" +
-                             " and $($expiryThreshold.ToString('yyyy-MM-dd'))"
+                              " and $($expiryThreshold.ToString('yyyy-MM-dd'))"
 
             Write-Verbose -Message $verboseMessage
         }
@@ -170,7 +170,7 @@ function Get-EntraAppExpiringCredentials {
                 $filterStrings = foreach ($id in $AppId) { "appId eq '$id'" }
                 $appIdFilter = $filterStrings -join ' or '
 
-                "($appIdFilter)"
+                Write-Output -InputObject "($appIdFilter)"
             }
             else { $null }
 
@@ -187,7 +187,7 @@ function Get-EntraAppExpiringCredentials {
 
             if (-not $applications) {
 
-                Write-Warning -Messsage "No applications found matching the specified criteria."
+                Write-Warning -Message "No applications found matching the specified criteria."
                 return
             }
 
@@ -206,8 +206,9 @@ function Get-EntraAppExpiringCredentials {
                         # Apply filtering logic
                         if (($IncludeExpired -or -not $isExpired) -and
                             ($secret.EndDateTime -le $expiryThreshold)) {
-                            
-                            $description = $secret.DisplayName ?? 'No description'
+
+                            $description = if ($secret.DisplayName) { $secret.DisplayName }
+                                           else { 'No description' }
 
                             if ($description -eq 'CWAP_AuthSecret') {
                                 
@@ -241,7 +242,8 @@ function Get-EntraAppExpiringCredentials {
                         $isExpired = $cert.EndDateTime -lt $today
                         
                         # Apply filtering logic
-                        if (($IncludeExpired -or -not $isExpired) -and $cert.EndDateTime -le $expiryThreshold) {
+                        if (($IncludeExpired -or (-not $isExpired)) -and
+                            ($cert.EndDateTime -le $expiryThreshold)) {
 
                             $results.Add(
                                 [PSCustomObject]@{
@@ -249,7 +251,8 @@ function Get-EntraAppExpiringCredentials {
                                     DisplayName = $app.DisplayName
                                     CredentialType = 'Certificate'
                                     CredentialId = $cert.KeyId
-                                    Description = $cert.DisplayName ?? 'No description'
+                                    Description = if ($cert.DisplayName) { $cert.DisplayName }
+                                                  else { 'No description' }
                                     SecretHint = $null
                                     StartDate = $cert.StartDateTime
                                     EndDate = $cert.EndDateTime
