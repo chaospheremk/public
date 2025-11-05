@@ -5,10 +5,13 @@ function Initialize-RemoteFileServer {
 
     .DESCRIPTION
         Uses Invoke-Command to remotely install PowerShell 7, register a custom
-        repository, and install required modules (NTFSSecurity and COMPANYPSTools).
+        file share repository, and install required modules (NTFSSecurity and COMPANYPSTools).
         
         Designed for bulk preparation of file servers before running additional
         automation scripts. Each step is executed sequentially with validation.
+        
+        Note: Remote machines must have network access to the file share repository.
+        Ensure the computer accounts or service accounts have Read access to the UNC path.
 
     .PARAMETER ComputerName
         One or more remote computer names to configure.
@@ -17,7 +20,7 @@ function Initialize-RemoteFileServer {
         Name for the custom PowerShell repository (e.g., 'CompanyRepo').
 
     .PARAMETER RepositoryUri
-        URI of the self-hosted PowerShell repository (e.g., 'https://psrepo.company.com/nuget').
+        UNC path to the self-hosted PowerShell repository file share (e.g., '\\psrepo\PowerShellModules').
 
     .PARAMETER Credential
         PSCredential object for remote authentication. If not provided, uses current context.
@@ -31,11 +34,11 @@ function Initialize-RemoteFileServer {
     .EXAMPLE
         $cred = Get-Credential
         $servers = 'FS01', 'FS02', 'FS03'
-        $results = Initialize-RemoteFileServer -ComputerName $servers -RepositoryName 'CompanyRepo' -RepositoryUri 'https://psrepo.company.com/nuget' -Credential $cred
+        $results = Initialize-RemoteFileServer -ComputerName $servers -RepositoryName 'CompanyRepo' -RepositoryUri '\\psrepo\PowerShellModules' -Credential $cred
         $results | Where-Object { -not $_.Success } | Format-Table
 
     .EXAMPLE
-        Initialize-RemoteFileServer -ComputerName 'FS01' -RepositoryName 'CompanyRepo' -RepositoryUri 'https://psrepo.company.com/nuget' -SkipPS7Install
+        Initialize-RemoteFileServer -ComputerName 'FS01' -RepositoryName 'CompanyRepo' -RepositoryUri '\\psrepo\PowerShellModules' -SkipPS7Install
 
     .NOTES
         Performance: Processes servers in parallel via Invoke-Command.
@@ -53,7 +56,7 @@ function Initialize-RemoteFileServer {
         [string]$RepositoryName,
 
         [Parameter(Mandatory)]
-        [ValidatePattern('^https?://')]
+        [ValidateNotNullOrEmpty()]
         [string]$RepositoryUri,
 
         [Parameter()]
@@ -153,9 +156,13 @@ function Initialize-RemoteFileServer {
 }
 
 try {
-    # Step 2: Register custom repository
+    # Step 2: Register custom repository (file share)
     if (-not (Get-PSRepository -Name '$RepoName' -ErrorAction SilentlyContinue)) {
-        Register-PSRepository -Name '$RepoName' -SourceLocation '$RepoUri' -InstallationPolicy Trusted
+        # Verify file share is accessible
+        if (-not (Test-Path '$RepoUri' -ErrorAction SilentlyContinue)) {
+            throw "Cannot access repository path: $RepoUri"
+        }
+        Register-PSRepository -Name '$RepoName' -SourceLocation '$RepoUri' -PublishLocation '$RepoUri' -InstallationPolicy Trusted
     }
     `$results.RepositoryAdded = `$true
 } catch {
