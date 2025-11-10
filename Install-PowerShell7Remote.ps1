@@ -84,10 +84,10 @@ function Install-PowerShell7Remote {
 
         [Parameter(Mandatory)]
         [ValidateScript({
-            if (-not (Test-Path -Path $_ -PathType 'Leaf')) { throw "Installer file not found: $_" }
-            if ($_ -notmatch '\.msi$') { throw "Installer must be an MSI file: $_" }
-            $true
-        })]
+                if (-not (Test-Path -Path $_ -PathType 'Leaf')) { throw "Installer file not found: $_" }
+                if ($_ -notmatch '\.msi$') { throw "Installer must be an MSI file: $_" }
+                $true
+            })]
         [string]$InstallerPath,
 
         [Parameter()]
@@ -133,7 +133,9 @@ function Install-PowerShell7Remote {
     }
 
     process {
+
         foreach ($computer in $ComputerName) {
+
             $result = [PSCustomObject]@{
                 ComputerName     = $computer
                 Success          = $false
@@ -147,12 +149,14 @@ function Install-PowerShell7Remote {
 
             try {
                 if ($PSCmdlet.ShouldProcess($computer, "Install PowerShell 7 and enable remoting")) {
+
                     Write-Verbose "[$computer] Establishing PS 5.1 session..."
 
                     $sessionParams = @{
                         ComputerName = $computer
                         ErrorAction  = 'Stop'
                     }
+
                     if ($Credential) { $sessionParams.Credential = $Credential }
 
                     $session = New-PSSession @sessionParams
@@ -162,11 +166,21 @@ function Install-PowerShell7Remote {
                         $remoteTempPath = "C:\temp\$installerFileName"
                         Write-Verbose "[$computer] Ensuring temp directory exists..."
                         
-                        Invoke-Command -Session $session -ScriptBlock {
+                        $tempFolderScript = {
+
                             if (-not (Test-Path 'C:\temp')) {
-                                New-Item -Path 'C:\temp' -ItemType Directory -Force | Out-Null
+                                
+                                $null = New-Item -Path 'C:\temp' -ItemType 'Directory' -Force
                             }
-                        } -ErrorAction Stop
+                        }
+
+                        $paramsInvokeCommandTempFolder = @{
+                            Session = $session
+                            ScriptBlock = $tempFolderScript
+                            ErrorAction = 'Stop'
+                        }
+
+                        Invoke-Command @paramsInvokeCommandTempFolder
 
                         Write-Verbose "[$computer] Copying installer to $remoteTempPath..."
                         
@@ -177,6 +191,7 @@ function Install-PowerShell7Remote {
                             Force       = $true
                             ErrorAction = 'Stop'
                         }
+
                         Copy-Item @paramsCopyItem
 
                         # Build installation arguments
@@ -229,9 +244,11 @@ function Install-PowerShell7Remote {
                         $installResult = Invoke-Command @paramsInvokeCommandInstall
                         Write-Verbose "[$computer] Installation started (PID: $($installResult.ProcessId))"
 
+                        while ($session.State -ne 'Broken') { Start-Sleep -Seconds 2 }
+
                         # Close the session before WinRM restarts
-                        Remove-PSSession -Session $session -ErrorAction SilentlyContinue
-                        $session = $null
+                        #Remove-PSSession -Session $session -ErrorAction 'SilentlyContinue'
+                        #$session = $null
 
                         # Poll for installation completion
                         Write-Verbose "[$computer] Waiting for installation to complete (polling every 5s)..."
@@ -240,48 +257,66 @@ function Install-PowerShell7Remote {
                         $pollInterval = 5
 
                         while (((Get-Date) - $pollStartTime).TotalSeconds -lt $TimeoutSeconds) {
+
                             Start-Sleep -Seconds $pollInterval
 
                             try {
                                 # Attempt to create new PS 5.1 session to check status
-                                $checkSession = New-PSSession @sessionParams -ErrorAction Stop
+                                $checkSession = New-PSSession @sessionParams -ErrorAction 'Stop'
 
                                 $verifyScript = {
+
                                     $pwshPath = 'C:\Program Files\PowerShell\7\pwsh.exe'
+
                                     if (Test-Path $pwshPath) {
+
                                         $versionOutput = & $pwshPath -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
+
                                         return @{
                                             Installed = $true
                                             Version   = $versionOutput
                                         }
                                     }
+
                                     return @{
                                         Installed = $false
                                         Version   = $null
                                     }
                                 }
 
-                                $verification = Invoke-Command -Session $checkSession -ScriptBlock $verifyScript -ErrorAction Stop
+                                $paramsInvokeCommandVerification = @{
+                                    Session = $checkSession
+                                    ScriptBlock = $verifyScript
+                                    ErrorAction = 'Stop'
+                                }
+                                
+                                $verification = Invoke-Command @paramsInvokeCommandVerification
 
                                 if ($verification.Installed) {
+
                                     $installed = $true
                                     $result.InstalledVersion = $verification.Version
                                     Write-Verbose "[$computer] PowerShell 7 version: $($verification.Version)"
                                     
                                     # Verify remoting if enabled
                                     if ($EnableRemoting) {
+
                                         Write-Verbose "[$computer] Verifying PowerShell 7 remoting..."
                                         
                                         $remotingScript = {
+
                                             try {
+
                                                 $endpoints = Get-PSSessionConfiguration -ErrorAction 'Stop'
                                                 $ps7Endpoint = $endpoints.Where({ $_.Name -like 'PowerShell.7*' }, 'First')
+
                                                 return @{
                                                     Enabled  = $null -ne $ps7Endpoint
                                                     Endpoint = $ps7Endpoint.Name
                                                 }
                                             }
                                             catch {
+
                                                 return @{
                                                     Enabled  = $false
                                                     Endpoint = $null
@@ -289,7 +324,14 @@ function Install-PowerShell7Remote {
                                             }
                                         }
 
-                                        $remotingCheck = Invoke-Command -Session $checkSession -ScriptBlock $remotingScript -ErrorAction Stop
+                                        $paramsInvokeCommandRemoting = @{
+                                            Session = $checkSession
+                                            ScriptBlock = $remotingScript
+                                            ErrorAction = 'Stop'
+                                        }
+
+                                        $remotingCheck = Invoke-Command @paramsInvokeCommandRemoting
+
                                         $result.RemotingEnabled = $remotingCheck.Enabled
 
                                         if ($remotingCheck.Enabled) {
@@ -302,16 +344,29 @@ function Install-PowerShell7Remote {
 
                                     # Cleanup installer
                                     Write-Verbose "[$computer] Cleaning up installer file..."
-                                    Invoke-Command -Session $checkSession -ScriptBlock {
-                                        param($Path)
-                                        Remove-Item -Path $Path -Force -ErrorAction 'SilentlyContinue'
-                                    } -ArgumentList $remoteTempPath -ErrorAction SilentlyContinue
 
-                                    Remove-PSSession -Session $checkSession -ErrorAction SilentlyContinue
+                                    $cleanupScript = {
+                                        param($Path)
+
+                                        Remove-Item -Path $Path -Force -ErrorAction 'SilentlyContinue'
+                                    }
+
+                                    $paramsInvokeCommandCleanup = @{
+                                        Session = $checkSession
+                                        ScriptBlock = $cleanupScript
+                                        ArgumentList = $remoteTempPath
+                                        ErrorAction = 'SilentlyContinue'
+                                    }
+
+                                    Invoke-Command @paramsInvokeCommandCleanup
+
+                                    Remove-PSSession -Session $checkSession -ErrorAction 'SilentlyContinue'
+                                    Remove-PSSession -Session $session -ErrorAction 'SilentlyContinue'
                                     break
                                 }
 
-                                Remove-PSSession -Session $checkSession -ErrorAction SilentlyContinue
+                                Remove-PSSession -Session $checkSession -ErrorAction 'SilentlyContinue'
+                                Remove-PSSession -Session $session -ErrorAction 'SilentlyContinue'
                             }
                             catch {
                                 # WinRM may still be restarting or installation still running
@@ -328,7 +383,8 @@ function Install-PowerShell7Remote {
                         $result.Success = $true
                     }
                     finally {
-                        if ($session) { Remove-PSSession -Session $session -ErrorAction SilentlyContinue }
+
+                        if ($session) { Remove-PSSession -Session $session -ErrorAction 'SilentlyContinue' }
                     }
                 }
             }
