@@ -148,10 +148,10 @@ function Get-LdapBindActivity {
         EndTime = $EndTime
     }
     
-    $events = Get-WinEvent -FilterHashtable $filterHash -ErrorAction SilentlyContinue
-    if ($events) {
-        foreach ($event in $events) {
-            $message = $event.Message
+    $winEvents = Get-WinEvent -FilterHashtable $filterHash -ErrorAction SilentlyContinue
+    if ($winEvents) {
+        foreach ($winEvent in $winEvents) {
+            $message = $winEvent.Message
             
             # Parse client IP from message
             if ($message -match 'The following client performed a SASL \(Negotiate/Kerberos/NTLM/Digest\) LDAP bind without requesting signing.*?Client IP address:\s*([^\s]+)') {
@@ -202,10 +202,10 @@ function Get-KerberosActivity {
         EndTime = $EndTime
     }
     
-    $events = Get-WinEvent -FilterHashtable $filterHash -ErrorAction SilentlyContinue
-    if ($events) {
-        foreach ($event in $events) {
-            $xml = [xml]$event.ToXml()
+    $winEvents = Get-WinEvent -FilterHashtable $filterHash -ErrorAction SilentlyContinue
+    if ($winEvents) {
+        foreach ($winEvent in $winEvents) {
+            $xml = [xml]$winEvent.ToXml()
             $eventData = $xml.Event.EventData.Data
             
             $accountName = ($eventData.Where({ $_.Name -eq 'TargetUserName' }).'#text')
@@ -239,10 +239,10 @@ function Get-KerberosActivity {
         EndTime = $EndTime
     }
     
-    $events = Get-WinEvent -FilterHashtable $filterHash -ErrorAction SilentlyContinue
-    if ($events) {
-        foreach ($event in $events) {
-            $xml = [xml]$event.ToXml()
+    $winEvents = Get-WinEvent -FilterHashtable $filterHash -ErrorAction SilentlyContinue
+    if ($winEvents) {
+        foreach ($winEvent in $winEvents) {
+            $xml = [xml]$winEvent.ToXml()
             $eventData = $xml.Event.EventData.Data
             
             $accountName = ($eventData.Where({ $_.Name -eq 'TargetUserName' }).'#text')
@@ -306,10 +306,10 @@ function Get-NtlmActivity {
         EndTime = $EndTime
     }
     
-    $events = Get-WinEvent -FilterHashtable $filterHash -ErrorAction SilentlyContinue
-    if ($events) {
-        foreach ($event in $events) {
-            $xml = [xml]$event.ToXml()
+    $winEvents = Get-WinEvent -FilterHashtable $filterHash -ErrorAction SilentlyContinue
+    if ($winEvents) {
+        foreach ($winEvent in $winEvents) {
+            $xml = [xml]$winEvent.ToXml()
             $eventData = $xml.Event.EventData.Data
             
             $accountName = ($eventData.Where({ $_.Name -eq 'TargetUserName' }).'#text')
@@ -483,10 +483,10 @@ function Get-ServiceAccountActivity {
         EndTime = $EndTime
     }
     
-    $events = Get-WinEvent -FilterHashtable $filterHash -ErrorAction SilentlyContinue
-    if ($events) {
-        foreach ($event in $events) {
-            $xml = [xml]$event.ToXml()
+    $winEvents = Get-WinEvent -FilterHashtable $filterHash -ErrorAction SilentlyContinue
+    if ($winEvents) {
+        foreach ($winEvent in $winEvents) {
+            $xml = [xml]$winEvent.ToXml()
             $eventData = $xml.Event.EventData.Data
             
             $logonType = ($eventData.Where({ $_.Name -eq 'LogonType' }).'#text')
@@ -548,10 +548,10 @@ function Get-SmbAccessActivity {
         EndTime = $EndTime
     }
     
-    $events = Get-WinEvent -FilterHashtable $filterHash -ErrorAction SilentlyContinue
-    if ($events) {
-        foreach ($event in $events) {
-            $xml = [xml]$event.ToXml()
+    $winEvents = Get-WinEvent -FilterHashtable $filterHash -ErrorAction SilentlyContinue
+    if ($winEvents) {
+        foreach ($winEvent in $winEvents) {
+            $xml = [xml]$winEvent.ToXml()
             $eventData = $xml.Event.EventData.Data
             
             $accountName = ($eventData.Where({ $_.Name -eq 'SubjectUserName' }).'#text')
