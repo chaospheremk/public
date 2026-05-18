@@ -1,0 +1,348 @@
+Phase C diagnostic — step-by-step runbook
+
+  A. On the personal computer (before you travel)
+
+  1. Confirm trunk is current with PR #27 merged.
+
+  cd C:\SecondBrain\10-Projects\ADPermissionsAnalyzer\code
+  git checkout main
+  git pull origin main
+  git log --oneline -5
+
+  1. The top commit should be the PR #27 merge. If Get-RuntimeMemorySnapshot isn't in
+  scripts/Invoke-ADPermissionAnalysis.ps1, stop and tell me.
+  2. Tag the diagnostic baseline.
+
+  git tag diag-phase-c-baseline
+  git push origin diag-phase-c-baseline
+  3. Generate the portable bundle.
+
+  git archive --format=zip --output=C:\Temp\ADPermissionsAnalyzer-diag-phase-c.zip diag-phase-c-baseline
+  4. Transfer the zip to the work computer via whatever channel your environment allows (OneDrive / managed transfer /
+  USB). Confirm it lands intact (file size > 0, opens with right-click → Properties unblocked).
+
+  ---
+  B. On the work computer — prepare
+
+  5. Open PowerShell 7 (pwsh), not Windows PowerShell 5.1. The script requires PS 7.
+  6. Extract and confirm versions.
+
+  Expand-Archive -Path 'C:\Temp\ADPermissionsAnalyzer-diag-phase-c.zip' `
+                 -DestinationPath 'C:\ADPermissionsAnalyzer-diag' -Force
+  cd 'C:\ADPermissionsAnalyzer-diag'
+
+  $PSVersionTable.PSVersion          # must be 7.5.x
+  [System.Environment]::Version      # expect 9.x
+
+  6. If PS is <7.5 or .NET is <9, stop and resolve before continuing — the SDP type fixes from Phase A depend on 7.5.x
+  behaviour.
+  7. Smoke-parse the entry script. Catches transfer corruption before you waste a run.
+
+  [void] [scriptblock]::Create((Get-Content .\scripts\Invoke-ADPermissionAnalysis.ps1 -Raw))
+
+  7. No output = good. Any error = re-transfer the zip.
+  8. Confirm the new helper is present.
+
+  Select-String -Path .\scripts\Invoke-ADPermissionAnalysis.ps1 `
+                -Pattern 'function Get-RuntimeMemorySnapshot'
+
+  8. Should print one line. If empty, the wrong commit was bundled.
+  9. Create the output directory.
+
+  New-Item -ItemType Directory -Path 'C:\AdPermAudit-Diag1' -Force | Out-Null
+
+  ---
+  C. On the work computer — start a second PowerShell window for live tailing (optional)
+
+  10. In a second pwsh window, prime the tail script (it will start watching once the JSONL appears). Run this before
+  kicking off the main run.
+
+  while (-not (Get-ChildItem 'C:\AdPermAudit-Diag1' -Filter '*.jsonl' -ErrorAction SilentlyContinue)) {
+      Start-Sleep -Seconds 1
+  }
+  $latest = Get-ChildItem 'C:\AdPermAudit-Diag1' -Filter '*.jsonl' |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+
+  Get-Content $latest.FullName -Wait -Tail 0 | ForEach-Object {
+      $e = $_ | ConvertFrom-Json
+      $mem = $e.data.memory
+      if ($mem) {
+          '{0}  {1,-8} {2,-22}  heap={3,7}MB  ws={4,7}MB  gen2={5,3}' -f `
+              $e.timestamp, $e.phase, $e.event,
+              $mem.managedHeapMB, $mem.workingSetMB, $mem.gen2Collections
+      } else {
+          '{0}  {1,-8} {2,-22}  {3}' -f $e.timestamp, $e.phase, $e.event, $e.message
+      }
+  }
+
+  10. Watch for:
+    - workingSetMB doubling between consecutive events
+    - Gen2 count never advancing (means GC isn't reclaiming)
+    - Long gaps with no events (process busy or stuck)
+    - OS getting unresponsive / Task Manager Committed > Physical RAM → Ctrl+C the main run in the other window. Note
+  the timestamp.
+
+  ---
+  D. On the work computer — run the diagnostic (main window)
+
+  11. Run this whole block as one paste. Don't change parameters unless you have a specific reason (and note the
+  deviation if you do).
+
+  $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+  $params = @{
+      OutputDirectory       = 'C:\AdPermAudit-Diag1'
+      ThreadCount           = 2
+      BatchSize             = 50
+      PageSize              = 1000
+      IncludeNamingContexts = @('Domain')
+      LogFileName           = "Diag1_$timestamp.jsonl"
+  }
+
+  $transcript = Join-Path $params.OutputDirectory "Diag1_$timestamp.transcript.txt"
+  Start-Transcript -Path $transcript -Force | Out-Null
+
+  Write-Host '--- Pre-run baseline ---'
+  Write-Host "Start:              $(Get-Date -Format 'o')"
+  Write-Host "Process PID:        $PID"
+  Write-Host "Process WS (MB):    $([Math]::Round((Get-Process -Id $PID).WorkingSet64 / 1MB, 1))"
+  Write-Host "Available RAM (MB): $([Math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1024,
+  1))"
+
+  $exitCode = 0
+  try {
+      .\scripts\Invoke-ADPermissionAnalysis.ps1 @params
+      $exitCode = $LASTEXITCODE
+  }
+  catch {
+      $exitCode = 1
+      Write-Host "RUN THREW: $($_.Exception.Message)"
+      Write-Host $_.ScriptStackTrace
+  }
+  finally {
+      Write-Host '--- Post-run summary ---'
+      Write-Host "End:                $(Get-Date -Format 'o')"
+      Write-Host "Exit code:          $exitCode"
+      Write-Host "Process WS (MB):    $([Math]::Round((Get-Process -Id $PID).WorkingSet64 / 1MB, 1))"
+      Write-Host "Available RAM (MB): $([Math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1024,
+   1))"
+      Stop-Transcript | Out-Null
+  }
+
+  # Stash the timestamp for the post-run scripts below.
+  $timestamp | Set-Content "C:\AdPermAudit-Diag1\last-run-timestamp.txt"
+  12. While it runs, jot these observations (paper or a notes.txt — you'll bring them back):
+
+    - Wall-clock start time
+    - Approximate domain object count (your own knowledge OR watch the tail for Phase 2 NamingContextComplete events)
+    - Peak workingSetMB shown in Task Manager for the pwsh.exe process (the JSONL only catches the value at logged
+  events; Task Manager may show higher peaks between snapshots)
+    - Whether memory grew steadily / spiked at drains / stayed flat
+    - Wall-clock end time, OR the time the process disappeared if it died
+
+  ---
+  E. On the work computer — post-run capture
+
+  13. Run this block after the script exits (or after you confirm the process is dead).
+
+  $timestamp = (Get-Content 'C:\AdPermAudit-Diag1\last-run-timestamp.txt').Trim()
+  $jsonl = Join-Path 'C:\AdPermAudit-Diag1' "Diag1_$timestamp.jsonl"
+  $summaryPath = Join-Path 'C:\AdPermAudit-Diag1' "Diag1_$timestamp.summary.txt"
+
+  # Redirect everything below into the summary file AND echo to console.
+  & {
+      '--- JSONL summary ---'
+      "Path:       $jsonl"
+      "Size (KB):  $([Math]::Round((Get-Item $jsonl).Length / 1KB, 1))"
+      "Line count: $((Get-Content $jsonl | Measure-Object -Line).Lines)"
+
+      ''
+      '--- Last 30 events ---'
+      Get-Content $jsonl -Tail 30
+
+      ''
+      '--- Top 10 events by workingSetMB ---'
+      Get-Content $jsonl |
+          ForEach-Object { $_ | ConvertFrom-Json } |
+          Where-Object { $_.data.memory } |
+          ForEach-Object {
+              [PSCustomObject]@{
+                  timestamp = $_.timestamp
+                  phase     = $_.phase
+                  event     = $_.event
+                  heapMB    = $_.data.memory.managedHeapMB
+                  wsMB      = $_.data.memory.workingSetMB
+                  privMB    = $_.data.memory.privateBytesMB
+                  gen2      = $_.data.memory.gen2Collections
+              }
+          } |
+          Sort-Object wsMB -Descending |
+          Select-Object -First 10 |
+          Format-Table -AutoSize | Out-String
+
+      '--- Per-phase summary (PhaseEnd events) ---'
+      Get-Content $jsonl |
+          ForEach-Object { $_ | ConvertFrom-Json } |
+          Where-Object { $_.event -eq 'PhaseEnd' } |
+          ForEach-Object {
+              [PSCustomObject]@{
+                  phase     = $_.phase
+                  elapsedMs = $_.data.elapsedMs
+                  heapMB    = $_.data.memory.managedHeapMB
+                  wsMB      = $_.data.memory.workingSetMB
+                  gen2      = $_.data.memory.gen2Collections
+              }
+          } | Format-Table -AutoSize | Out-String
+
+      '--- Drain event count + peak ---'
+      $drains = Get-Content $jsonl |
+          ForEach-Object { $_ | ConvertFrom-Json } |
+          Where-Object { $_.event -eq 'MidEnumerationDrain' }
+      "Total drain events: $($drains.Count)"
+      if ($drains.Count -gt 0) {
+          "Max drained per pass: $(($drains.data.drained | Measure-Object -Maximum).Maximum)"
+          "Max wsMB at drain:    $(($drains.data.memory.workingSetMB | Measure-Object -Maximum).Maximum)"
+      }
+
+  } *>&1 | Tee-Object -FilePath $summaryPath
+  14. If the process died unexpectedly (you observed it vanish from Task Manager, or the transcript ends with no
+  ScriptEnd event), capture the Windows event logs too:
+
+  $timestamp = (Get-Content 'C:\AdPermAudit-Diag1\last-run-timestamp.txt').Trim()
+
+  Get-WinEvent -LogName Application -MaxEvents 200 |
+      Where-Object {
+          $_.TimeCreated -gt (Get-Date).AddMinutes(-30) -and
+          $_.LevelDisplayName -in 'Error','Warning' -and
+          ($_.ProviderName -match 'Error|PowerShell' -or
+           $_.Message -match 'pwsh|PowerShell|OutOfMemory|killed')
+      } |
+      Select-Object TimeCreated, ProviderName, Id, LevelDisplayName, Message |
+      Format-List | Out-File "C:\AdPermAudit-Diag1\Diag1_$timestamp.eventlog.txt"
+
+  Get-WinEvent -LogName System -MaxEvents 200 |
+      Where-Object {
+          $_.TimeCreated -gt (Get-Date).AddMinutes(-30) -and
+          $_.LevelDisplayName -in 'Error','Warning'
+      } |
+      Select-Object TimeCreated, ProviderName, Id, LevelDisplayName, Message |
+      Format-List | Out-File "C:\AdPermAudit-Diag1\Diag1_$timestamp.systemlog.txt"
+
+  14. If the run completed normally, skip step 14 — you don't need event logs.
+
+  ---
+  F. On the work computer — sanitize
+
+  15. Edit these three placeholder values in the next block before running. Don't run this with the placeholders
+  unedited — the redaction won't catch anything.
+
+  $timestamp = (Get-Content 'C:\AdPermAudit-Diag1\last-run-timestamp.txt').Trim()
+  $src = Join-Path 'C:\AdPermAudit-Diag1' "Diag1_$timestamp.jsonl"
+  $dst = $src -replace '\.jsonl$', '.sanitized.jsonl'
+
+  # ===== FILL THESE IN BEFORE RUNNING =====
+  $realDomain         = 'REPLACE-WITH-FQDN.example.com'   # e.g. corp.contoso.com
+  $realServer         = 'REPLACE-WITH-DC.example.com'     # e.g. dc01.corp.contoso.com
+  $realNetbiosDomain  = 'REPLACE-WITH-NETBIOS'            # e.g. CONTOSO
+  # =========================================
+
+  $ncRegex  = [regex]'DC=[^,"]+(?:,DC=[^,"]+)+'
+  $sidRegex = [regex]'S-1-5-21-\d+-\d+-\d+(-\d+)?'
+
+  Get-Content $src | ForEach-Object {
+      $line = $_
+      $line = $line -replace [regex]::Escape($realDomain), '<DOMAIN>'
+      $line = $line -replace [regex]::Escape($realServer), '<SERVER>'
+      $line = $line -replace [regex]::Escape($realNetbiosDomain), '<NETBIOS>'
+      $line = $ncRegex.Replace($line, '<NC>')
+      $line = $sidRegex.Replace($line, '<SID>')
+      $line
+  } | Set-Content $dst -Encoding utf8
+  16. Verify sanitization worked. This should print nothing. If it prints lines, fix them before transferring.
+
+  Select-String -Path $dst `
+                -Pattern 'DC=[^,"<]+,DC=','S-1-5-21-\d',[regex]::Escape($realDomain) |
+      Select-Object -First 10
+
+  16. Also eyeball-check the sanitized file:
+
+  Get-Content $dst -TotalCount 5
+  Get-Content $dst -Tail 5
+  17. Sanitize the transcript too (it may contain the domain / server in the ScriptStart echo or in error messages):
+
+  $transcript = Join-Path 'C:\AdPermAudit-Diag1' "Diag1_$timestamp.transcript.txt"
+  $transcriptSanitized = $transcript -replace '\.txt$', '.sanitized.txt'
+
+  Get-Content $transcript | ForEach-Object {
+      $line = $_
+      $line = $line -replace [regex]::Escape($realDomain), '<DOMAIN>'
+      $line = $line -replace [regex]::Escape($realServer), '<SERVER>'
+      $line = $line -replace [regex]::Escape($realNetbiosDomain), '<NETBIOS>'
+      $line = $ncRegex.Replace($line, '<NC>')
+      $line = $sidRegex.Replace($line, '<SID>')
+      $line
+  } | Set-Content $transcriptSanitized -Encoding utf8
+
+  ---
+  G. On the work computer — write the notes.txt
+
+  18. Open C:\AdPermAudit-Diag1\notes.txt in Notepad and fill in (the next session needs all of this):
+
+  Run outcome:        [completed | killed by OS | I aborted | other]
+  Exit code:          [from transcript]
+  Wall-clock start:   [yyyy-MM-dd HH:mm:ss]
+  Wall-clock end:     [yyyy-MM-dd HH:mm:ss, or "process vanished at HH:mm:ss"]
+  Domain size approx: [object count, your estimate or from JSONL totalObjects]
+  Task Manager peak:  [highest workingSetMB you saw on pwsh.exe]
+  Memory growth shape: [steady linear / batchy spikes around drains / stepwise at phase boundaries / other]
+  Anything weird:     [free text — anything Task Manager / Event Viewer / your gut noted]
+  Deviations from runbook: [any param changes; "none" if you used the defaults]
+
+  ---
+  H. Transfer back to personal computer
+
+  19. Copy these files from the work computer to whatever transfer location you'll bring back:
+
+  | File                                  | Required?            |
+  |---------------------------------------|----------------------|
+  | Diag1_<ts>.sanitized.jsonl            | yes                  |
+  | Diag1_<ts>.sanitized.txt (transcript) | yes                  |
+  | Diag1_<ts>.summary.txt                | yes                  |
+  | notes.txt                             | yes                  |
+  | Diag1_<ts>.eventlog.txt               | only if process died |
+  | Diag1_<ts>.systemlog.txt              | only if process died |
+
+  19. Do not bring back:
+    - The unsanitized Diag1_<ts>.jsonl
+    - The unsanitized Diag1_<ts>.transcript.txt
+    - Diag1_<ts>_Detail.csv and Diag1_<ts>_Pivot.csv (real DNs, real SIDs — they stay on the work computer)
+    - last-run-timestamp.txt (helper only)
+  20. On the work computer, before you leave, delete the unsanitized files if your data-handling rules require it:
+
+  Remove-Item "C:\AdPermAudit-Diag1\Diag1_$timestamp.jsonl"
+  Remove-Item "C:\AdPermAudit-Diag1\Diag1_$timestamp.transcript.txt"
+  Remove-Item "C:\AdPermAudit-Diag1\Diag1_*_Detail.csv" -ErrorAction SilentlyContinue
+  Remove-Item "C:\AdPermAudit-Diag1\Diag1_*_Pivot.csv"  -ErrorAction SilentlyContinue
+
+  20. Keep the extracted C:\ADPermissionsAnalyzer-diag source tree if you might want to re-run; otherwise remove it too.
+
+  ---
+  I. Back on the personal computer
+
+  21. Drop the six (or four) brought-back files into a folder — suggested path:
+  C:\SecondBrain\10-Projects\ADPermissionsAnalyzer\diagnostic-runs\phase-c\ (create it; gitignored by virtue of being
+  outside code/).
+  22. Open a fresh Claude Code session and paste the Phase C analysis prompt I gave you earlier, replacing
+  <ARTEFACT_PATH> with that folder path.
+
+  ---
+  Quick sanity checks before you leave the personal computer
+
+  - Step 1: git log --oneline -5 shows the PR #27 merge as the top of main
+  - Step 2: git tag lists diag-phase-c-baseline
+  - Step 3: C:\Temp\ADPermissionsAnalyzer-diag-phase-c.zip exists and is more than a few hundred KB
+  - You have the three sanitization placeholders ready to fill in on the work computer (domain FQDN, DC FQDN, NetBIOS
+  name)
+  - You know the Phase C analysis prompt is sitting in this conversation above — copy it now if you'll clear context
+  before the next session
+
+  That's the whole loop. Ask if anything in any step is unclear before you go.
