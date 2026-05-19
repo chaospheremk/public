@@ -1,0 +1,131 @@
+Phase 0 — Pack up on your normal box
+
+  Step 0.1 — Confirm the tree is clean and on the right commit
+
+  cd C:\SecondBrain\10-Projects\ADPermissionsAnalyzer\code
+  git switch main
+  git pull
+  git status                       # expect: clean
+  git log --oneline -1             # expect: 6be4fb3 Merge pull request #31...
+
+  6be4fb3 is the merge of PR #31 (today's dev-branch retirement). The three bug fixes you need are upstream of it:
+  BUG-001 streaming (219260d), BUG-002 uint32 cast (34664f7), BUG-003 TrusteeSid flatten (cfa1111).
+
+  Step 0.2 — Pick one transfer mechanism
+
+  Pick whichever you used last time for Phase C, or whichever fits the work environment.
+
+  Option A — Git bundle (recommended, single-file, offline-friendly)
+
+  This is the same pattern the runbook recommends. Single file, no network required at the work end,
+  integrity-verifiable.
+
+  $bundlePath = "$env:USERPROFILE\Downloads\adpa-main-6be4fb3.bundle"
+  git bundle create $bundlePath main
+  git bundle verify $bundlePath    # sanity check before transfer
+
+  The resulting .bundle is one file. Copy it via USB / OneDrive / whatever you used last time. On the work side:
+
+  # On the work computer, in whatever parent directory you want:
+  git clone .\adpa-main-6be4fb3.bundle ADPermissionsAnalyzer
+  cd ADPermissionsAnalyzer
+  git checkout main
+  git log --oneline -1             # must show: 6be4fb3 Merge pull request #31...
+  git remote remove origin         # the bundle's "origin" points at the bundle file, drop it
+
+  The bundle is a complete repo snapshot — it carries the full history, so git log, git blame, and the build's
+  pre-commit hook all work normally on the work side.
+
+  Option B — GitHub clone (only if the work box has internet to github.com)
+
+  git clone https://github.com/chaospheremk/ADPermissionsAnalyzer.git
+  cd ADPermissionsAnalyzer
+  git switch main
+  git log --oneline -1             # must show: 6be4fb3 Merge pull request #31...
+
+  This is the simplest path — no bundle file to manage. Only viable if https://github.com is reachable from the work
+  box.
+
+  Option C — USB / network share copy of the code/ folder
+
+  Bring the whole code/ directory tree (the one you're sitting in right now). Skip the parent vault folders — only code/
+   is needed.
+
+  # On your normal box — produce a zip of the code/ tree, but exclude noise:
+  $zipPath = "$env:USERPROFILE\Downloads\adpa-main-6be4fb3.zip"
+  Compress-Archive `
+      -Path C:\SecondBrain\10-Projects\ADPermissionsAnalyzer\code\* `
+      -DestinationPath $zipPath
+
+  (.git/ is part of the tree and you DO want it in the archive — without it, you lose git log / git status / the
+  pre-push hook on the work side, and Invoke-Build doesn't verify anything against the merge commit. The runbook
+  explicitly says to include .git/.)
+
+  On the work side: extract, then verify:
+
+  Expand-Archive .\adpa-main-6be4fb3.zip -DestinationPath .\ADPermissionsAnalyzer
+  cd ADPermissionsAnalyzer
+  git status                       # should work and report clean
+  git log --oneline -1             # must show: 6be4fb3 Merge pull request #31...
+
+  If git status errors with "not a git repository" — the .git/ folder didn't make it across (hidden folder, the source
+  Compress-Archive may have skipped it). Re-zip on the source side using Get-ChildItem -Force or 7-Zip, which include
+  dot-prefixed entries by default.
+
+  Step 0.3 — Verify integrity on the work computer
+
+  Regardless of transfer mechanism, before doing anything else:
+
+  git log --oneline -1                                # must show 6be4fb3
+  git rev-parse HEAD                                  # must be 6be4fb37...
+  git status                                          # must be clean
+  $PSVersionTable.PSVersion.Major                     # must be >= 7
+
+  If any of those four fail, stop and fix the transfer before running the script.
+
+  Step 0.4 — Confirm work-box prerequisites (unchanged from the runbook)
+
+  The runbook's Phase 1 — Target machine prerequisites (docs/operator-runbook.md) section still applies as-is:
+
+  - pwsh 7+ available
+  - account has Read Permissions on the Domain NC root (Domain Admin works trivially)
+  - TCP/389 reachable to a DC (Test-NetConnection -ComputerName <dc-fqdn> -Port 389)
+  - ~2 GB free on local SSD for output
+
+  You did all this for Phase C so it should already be true.
+
+  ---
+  Phase 1 onward — same as before
+
+  Now pick up at Step 2 of the instructions I gave a moment ago (Invoke-Build Build -Configuration Release on the work
+  box to verify the build), then through to Step 8 (hand off the sanitized JSONL to the vault session).
+
+  The Phase C exact-match knobs to re-use:
+
+  $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+  $out = ".\diagnostic-runs\phase-e\$stamp"
+  New-Item -ItemType Directory -Path $out -Force | Out-Null
+
+  $params = @{
+      OutputDirectory       = $out
+      IncludeNamingContexts = @('Domain')
+      ThreadCount           = 2
+      BatchSize             = 50
+  }
+  & .\scripts\Invoke-ADPermissionAnalysis.ps1 @params
+  $exitCode = $LASTEXITCODE
+
+  Target: exit 0, peak heap ≤ 5,500 MB, zero BatchError events, OrphanSid messages ≤ 100 chars each (vs. Phase C's 34k
+  median).
+
+  ---
+  Notes you may want to keep handy:
+
+  - The work-computer environment runs PS 7.5.4 / .NET 9 on Windows Server (per bugs.md BUG-001). That's the same
+  environment that surfaced the six PS-7.5.4-specific fixes captured in the [Unreleased] CHANGELOG section. The current
+  main has all of those merged, so no fresh surprises are expected on that axis.
+  - If Invoke-Build Build -Configuration Release fails on the work box but passed on your normal box, the most likely
+  culprit is a missing PowerShell module (InvokeBuild, Pester, PSScriptAnalyzer). The runbook covers Install-Module for
+  those; the build script auto-installs the missing pieces in CI but does not on a fresh local install.
+  - The bundle option (A) is what I'd reach for first — it produces a single integrity-verified artifact, you can keep a
+   copy as a reproducibility record, and it's the closest thing to "git clone" that works offline.
